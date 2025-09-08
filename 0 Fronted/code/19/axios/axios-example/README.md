@@ -1,10 +1,11 @@
 ## 封装axios方案
+
 ### 项目启动
+
 ```bash
-# 在项目根目录下执行脚本文件 start.ps1
+# 在项目根目录下执行脚本文件 powershell下执行 start.ps1
 ./start.ps1
 ```
-
 
 ### 如何封装
 
@@ -23,49 +24,38 @@
   
 - [x] mock数据服务: strapi
 
-
-
 ### 1.请求拦截器+响应拦截器的基础设置
 
-* 基础请求(get, post, put, del等请求的封装)
-* 拦截器的基本封装
-  * 请求拦截器: 
-    * 请求头设置
-    * 用户标识添加
-  * 响应拦截器
-    * 网络错误处理
-    * 授权错误处理
-    * 普通错误处理
-    * 代码异常处理
-
-
-
-
+- 基础请求(get, post, put, del等请求的封装)
+- 拦截器的基本封装
+  - 请求拦截器:
+    - 请求头设置
+    - 用户标识添加
+  - 响应拦截器
+    - 网络错误处理
+    - 授权错误处理
+    - 普通错误处理
+    - 代码异常处理
 
 ### 2.取消重复请求
 
 #### 2.1 取消重复请求的场景有哪些?
 
-* 页面切换
-* 搜索输入时的防抖节流: 快速输入时,需要取消上一次的搜索请求,只发送最后一次
-* 下拉列表的频繁切换
-* 用户手动取消操作: 用户点击取消按钮,关闭弹窗或放弃某个操作
-* 请求超时自动取消
-* 重复提交防止
-* 组件卸载时
-* 登录状态改变: 用户退出登录时取消所有未完成的请求
-* 依赖条件变更: 如使用React的useEffect时，依赖项变化导致之前的请求不再有效
-* 网络状态变化: 网络从在线变为离线
-* 无限滚动加载时切换条件: 比如用户在滚动加载时突然切换了筛选条件
-
-
+- 页面切换
+- 搜索输入时的防抖节流: 快速输入时,需要取消上一次的搜索请求,只发送最后一次
+- 下拉列表的频繁切换
+- 用户手动取消操作: 用户点击取消按钮,关闭弹窗或放弃某个操作
+- 请求超时自动取消
+- 重复提交防止
+- 组件卸载时
+- 登录状态改变: 用户退出登录时取消所有未完成的请求
+- 依赖条件变更: 如使用React的useEffect时，依赖项变化导致之前的请求不再有效
+- 网络状态变化: 网络从在线变为离线
+- 无限滚动加载时切换条件: 比如用户在滚动加载时突然切换了筛选条件
 
 #### 2.2 如何取消重复请求
 
-1. 
-
-
-
+1.
 
 ```ts
 // src/axios/http.ts  简化版
@@ -76,7 +66,7 @@ class HttpRequest {
     baseURL: import.env.VUE_APP_BASE_URL || 'api',
     timeout: 1000*6
   }
-	private pendingRequests
+ private pendingRequests
   
   constructor(config) {
     this._instance = axios.create(Object.assign(this._defaultConfig, config))
@@ -86,12 +76,12 @@ class HttpRequest {
   }
 
 
-	private getRequestsKey(config) {
+ private getRequestsKey(config) {
     const {method, url, params, data} = config
     return [method, url, JSON.stringify(params), JSON.stringify(data)].join('&')
   }
 
-	private removePendingRequest(requestKey) {
+ private removePendingRequest(requestKey) {
     if (this.pendingRequests.has(requestKey)) {
       const controller = this.pendingRequests.get(requestKey)
       controller.abort()
@@ -99,7 +89,7 @@ class HttpRequest {
     }
   }
 
-	private addPendingRequest(config) {
+ private addPendingRequest(config) {
     const requestKey = this.getRequestsKey(config)
     this.removeRequestKey(requestKey)
     
@@ -108,14 +98,14 @@ class HttpRequest {
     this.pendingRequests.set(requestKey, controller)
   }
   //取消所有请求
-	public cancelAllRequests() {
+ public cancelAllRequests() {
     this.pendingRequests.forEach(controller => controller.abort())
     this.pendingRequests.clear()
   }
 
-	setupInterceptors() {
+ setupInterceptors() {
     this._instance.interceptor.request.use(
-    	config => {
+     config => {
         // 防止重复请求
         this.addPendingRequest(config)
         
@@ -128,7 +118,7 @@ class HttpRequest {
       }
     )
     this._instance.interceptor.response.use(
-    	response => {
+     response => {
         const requestKey = this.getReuqestKey(response.config)
         this.removePendingRequest(requestKey)
         
@@ -158,11 +148,9 @@ class HttpRequest {
       }
     )
   }
-	
+ 
 }
 ```
-
-
 
 ![image-20250413135453209](assets/image-20250413135453209.png)
 
@@ -191,32 +179,16 @@ class HttpRequest {
   }
   
    //取消所有请求
-	public cancelAllRequests() {
+ public cancelAllRequests() {
     this.pendingRequests.forEach(controller => controller.abort())
     this.pendingRequests.clear()
   }
 }
 ```
 
-
-
 ### 4.一键配置代理
 
-
-
-
-
-
-
-### 5.
-
-
-
-
-
-
-
-
+### 5
 
 ### 使用Axios的3种方式
 
@@ -253,8 +225,6 @@ export const http = httpInstance;
 export default httpInstance;
 ```
 
-
-
 ```tsx
 //在组件中使用
 
@@ -265,8 +235,6 @@ get('/test').then(rse => {
   console.log('res>', res)
 })
 ```
-
-
 
 **方案2 - 在Vue中作为插件使用**
 
@@ -291,8 +259,6 @@ export default {
 };
 ```
 
-
-
 ```tsx
 //src/main.ts
 
@@ -304,8 +270,6 @@ const app = createApp(App);
 app.use(httpPlugin);
 app.mount('#app');
 ```
-
-
 
 ```ts
 //组件
@@ -341,8 +305,6 @@ export default {
 
 ```
 
-
-
 **其它-在react中使用Context**
 
 1. 创建HttpContext
@@ -371,8 +333,6 @@ export const HttpProvider = ({ children }) => {
 export const useHttp = () => useContext(HttpContext);
 ```
 
-
-
 ```tsx
 // src/index.tsx
 import React from 'react';
@@ -387,8 +347,6 @@ ReactDOM.render(
   document.getElementById('root')
 );
 ```
-
-
 
 ```tsx
 // 在组件中
@@ -412,10 +370,6 @@ const MyComponent = () => {
 };
 ```
 
-
-
-
-
 ## strapi的使用
 
 ### 1. 创建strapi服务
@@ -425,8 +379,6 @@ const MyComponent = () => {
 ```sh
 npx create-strapi@latest server-strapi
 ```
-
-
 
 因为我们在命令行提供的选项中选择了ts, 所以需要复制admin文件夹下的`app.example.tsx`文件, 重命名为`app.tsx`, 并将语言改为中文简体.  选择js文件时,同理.
 
@@ -446,17 +398,13 @@ export default {
 };
 ```
 
-
-
-
-
 ### 2. 启动服务
 
 ```sh
 npm run dev
 ```
 
-启动成功后,命令行会提示本地地址: 
+启动成功后,命令行会提示本地地址:
 
 ```html
 http://localhost:1337/admin
@@ -480,18 +428,12 @@ password: 123Kkk@kk.com
 1. 创建接口的集合
 2. 将此集合的权限配置为public
 
-
-
 ##### 1.创建接口集合
 
 ![image-20250410201917319](assets/image-20250410201917319.png)
 
-
-
 ##### 2.将此集合的权限配置为public
 
 ![image-20250410202353307](assets/image-20250410202353307.png)
-
-
 
 配置完成以后, 就可以在浏览器地址栏中访问地址, 查看是否能获取到结果.
