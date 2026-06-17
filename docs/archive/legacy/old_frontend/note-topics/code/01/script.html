@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>script async / defer 验证</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+      color: #1f2933;
+      background: #f7f9fc;
+    }
+
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 32px 20px;
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: 28px;
+    }
+
+    code {
+      padding: 2px 5px;
+      border-radius: 4px;
+      background: #e8edf3;
+    }
+
+    .panel {
+      margin-top: 20px;
+      padding: 18px;
+      border: 1px solid #d8e0ea;
+      border-radius: 8px;
+      background: #ffffff;
+    }
+
+    #log {
+      min-height: 260px;
+      margin: 12px 0 0;
+      padding: 14px;
+      border-radius: 6px;
+      overflow: auto;
+      color: #dbeafe;
+      background: #0f172a;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 14px;
+      white-space: pre-wrap;
+    }
+
+    .hint {
+      color: #52606d;
+    }
+  </style>
+  <script>
+    (function () {
+      var queuedLogs = [];
+
+      function append(entry) {
+        var log = document.getElementById('log');
+
+        if (!log) {
+          queuedLogs.push(entry);
+          return;
+        }
+
+        while (queuedLogs.length > 0) {
+          log.textContent += queuedLogs.shift() + '\n';
+        }
+
+        log.textContent += entry + '\n';
+      }
+
+      window.demoLog = function (message) {
+        var time = performance.now().toFixed(1).padStart(6, ' ');
+        var entry = '[' + time + 'ms][' + document.readyState + '] ' + message;
+
+        console.log(entry);
+        append(entry);
+      };
+
+      document.addEventListener('DOMContentLoaded', function () {
+        window.demoLog('DOMContentLoaded: HTML 文档解析完成，defer 脚本已经执行完');
+      });
+
+      window.addEventListener('load', function () {
+        window.demoLog('window load: 页面依赖资源全部加载完成');
+      });
+
+      window.demoLog('inline head script: 内联脚本没有下载阶段，遇到就立即执行');
+    })();
+  </script>
+
+  <script src="./normal-blocking.js"></script>
+
+  <script src="./async-slow.js?delay=900" async></script>
+  <script src="./async-fast.js?delay=0" async></script>
+
+  <script src="./defer-a.js?delay=600" defer></script>
+  <script src="./defer-b.js?delay=0" defer></script>
+</head>
+<body>
+  <main>
+    <h1>script async / defer 验证</h1>
+    <p class="hint">
+      打开控制台或查看下方日志。为了稳定验证 <code>async</code> 的加载顺序，请用同目录的
+      <code>server.js</code> 启动本地服务；直接用 <code>file://</code> 打开时没有人为网络延迟。
+    </p>
+
+    <section class="panel">
+      <strong>可验证结论</strong>
+      <ol>
+        <li>无属性外链脚本会阻塞 HTML 解析，执行时 <code>document.readyState</code> 仍是 <code>loading</code>。</li>
+        <li><code>async</code> 外链脚本下载完就执行，不保证按标签顺序。此示例中 slow 标签在前，但 fast 会先打印。</li>
+        <li><code>defer</code> 外链脚本等 HTML 解析完成后执行，并且按标签顺序执行。此示例中 A 标签在前，即使响应更慢，也会先于 B 打印。</li>
+        <li><code>DOMContentLoaded</code> 会在所有 <code>defer</code> 脚本执行完成后触发。</li>
+      </ol>
+    </section>
+
+    <section class="panel">
+      <strong>执行日志</strong>
+      <pre id="log"></pre>
+    </section>
+
+    <script>
+      window.demoLog('inline body script: 解析器已经走到 body 末尾，仍在 DOMContentLoaded 之前');
+    </script>
+  </main>
+</body>
+</html>
