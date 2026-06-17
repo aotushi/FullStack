@@ -1,6 +1,6 @@
 # Branch Protection
 
-The GitHub repository is `aotushi/allDo`.
+The GitHub repository is `aotushi/FullStack`.
 
 Configured default branch: `master`.
 
@@ -20,7 +20,7 @@ Repository settings:
 ```bash
 gh api \
   --method PATCH \
-  /repos/aotushi/allDo \
+  /repos/aotushi/FullStack \
   -f allow_auto_merge=true \
   -f delete_branch_on_merge=true \
   -f allow_squash_merge=true
@@ -29,7 +29,7 @@ gh api \
 Branch protection:
 
 ```bash
-cat <<'JSON' | gh api --method PUT /repos/aotushi/allDo/branches/master/protection --input -
+cat <<'JSON' | gh api --method PUT /repos/aotushi/FullStack/branches/master/protection --input -
 {
   "required_status_checks": {
     "strict": true,
