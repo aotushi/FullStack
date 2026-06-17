@@ -40,6 +40,13 @@ npm run docs:preview
 - Before committing, verify that the current branch matches the work type.
 - Run `npm run docs:build` before merging site structure or content changes.
 
+## GitHub Automation
+
+- Pull requests run [docs-build](./.github/workflows/docs-build.yml).
+- PRs labeled `automerge` enable GitHub auto-merge after required checks and reviews pass.
+- Branch protection guidance lives in [.github/BRANCH_PROTECTION.md](./.github/BRANCH_PROTECTION.md).
+- Code ownership rules live in [.github/CODEOWNERS](./.github/CODEOWNERS).
+
 ## Migration Rules
 
 - Move old content by directory first. Do not rewrite or split article content during the first migration pass.

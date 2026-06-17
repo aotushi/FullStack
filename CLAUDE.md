@@ -92,6 +92,14 @@ When the user asks to commit:
   - `chore: ...` for repository maintenance and tooling.
 - Keep each commit focused on the branch purpose. Do not mix note rewriting with site deployment or broad migration unless the user explicitly asks.
 
+## GitHub Automation
+
+- Pull requests must pass `.github/workflows/docs-build.yml`.
+- The `automerge` label enables `.github/workflows/enable-automerge.yml`, which uses GitHub auto-merge and waits for required checks/reviews.
+- Branch protection expectations are documented in `.github/BRANCH_PROTECTION.md`.
+- CODEOWNERS lives at `.github/CODEOWNERS`.
+- Do not weaken branch protection or broaden workflow permissions unless the user explicitly asks.
+
 ## Safety
 
 - The working tree may be dirty from ongoing migration. Do not revert unrelated changes.
