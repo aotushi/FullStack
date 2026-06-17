@@ -1,9 +1,0 @@
-@echo off
-echo 正在创建输出目录...
-mkdir output 2>nul
-
-echo 正在合并markdown文件...
-type "00_资料收藏.md" "01_HTML&CSS&JS&TS.md" "02_浏览器&HTTP&Git.md" "03_构建工具.md" "04_Vue&Nuxt.md" "05_React&Nest.md" "06_小程序.md" "07_Sveltet&Astro.md" "09_Nodejs.md" "10_移动端.md" "11_项目难点重点.md" "12_前端工程化.md" "13_前端项目优化.md" "14_CI&CD&运维工具.md" > output\combined.md
-
-echo 正在打开合并后的文件...
-start "" "D:\Program Files\Typora\Typora.exe" "output\combined.md" 

@@ -1,0 +1,14 @@
+# Default owner for repository changes.
+* @aotushi
+
+# Site configuration and automation.
+/docs/.vitepress/ @aotushi
+/.github/ @aotushi
+
+# High-level content areas.
+/docs/frontend_*/ @aotushi
+/docs/backend_*/ @aotushi
+/docs/web_*/ @aotushi
+/docs/client_*/ @aotushi
+/docs/devops_*/ @aotushi
+/docs/projects/ @aotushi

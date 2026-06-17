@@ -1,5 +1,0 @@
-export { useMessageStore } from './message/index'
-export { useUserStore } from './user/index'
-export { useArticleStore } from './article/index'
-export { useCommentStore } from './comment/index'
-export { useShortMsgStore } from './short-msg/index'
