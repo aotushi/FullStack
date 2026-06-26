@@ -1,0 +1,39 @@
+name: sync-docs-update
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    name: sync-docs-update
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: master
+
+      - name: Configure GitHub Actions bot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fast-forward docs/update
+        run: |
+          git fetch origin master
+
+          if git ls-remote --exit-code --heads origin docs/update >/dev/null 2>&1; then
+            git fetch origin docs/update
+            git switch docs/update
+            git merge --ff-only origin/master
+          else
+            git switch -c docs/update origin/master
+          fi
+
+          git push origin docs/update

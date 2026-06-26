@@ -83,9 +83,12 @@ This repository may contain runnable practice projects under `docs/projects/lega
 
 ## Git Branch Workflow
 
-- Use a dedicated branch for any non-trivial work.
+- `master` is the stable branch and deployment source.
+- Use `docs/update` as the long-lived branch for ordinary document updates.
+- Use a dedicated short-lived branch for non-trivial structure, site tooling, deployment, or migration work.
 - Keep structural migration, content rewriting, and deployment/config changes in separate branches when practical.
 - Suggested branch names:
+  - `docs/update` for ordinary document updates that should flow through the long-lived docs branch.
   - `migration/<scope>` for directory moves and legacy cleanup.
   - `docs/<topic>` for rewriting a topic, for example `docs/frontend-css`.
   - `site/<change>` for VitePress navigation, deployment, or theme changes.
@@ -93,6 +96,9 @@ This repository may contain runnable practice projects under `docs/projects/lega
 - Check `git status --short --branch` before editing and after changes.
 - Do not commit directly to the default branch unless the user explicitly asks.
 - Run `npm run docs:build` before merging site structure or published content changes.
+- PRs from `docs/update` should be merged with a merge commit and must not delete the branch.
+- PRs from short-lived branches can use squash merge and delete the branch after merge.
+- The `sync-docs-update` GitHub Actions workflow fast-forwards `docs/update` after `master` changes.
 
 When the user asks to commit:
 
@@ -108,6 +114,9 @@ When the user asks to commit:
 
 - Pull requests must pass `.github/workflows/docs-build.yml`.
 - The `automerge` label enables `.github/workflows/enable-automerge.yml`, which uses GitHub auto-merge and waits for required checks/reviews.
+- Pull requests from `docs/update` use `gh pr merge --auto --merge` so the long-lived branch history stays aligned with `master`.
+- Pull requests from short-lived branches use `gh pr merge --auto --squash --delete-branch`.
+- The `sync-docs-update` workflow uses `github-actions[bot]` Git identity for mechanical branch synchronization.
 - Branch protection expectations are documented in `.github/BRANCH_PROTECTION.md`.
 - CODEOWNERS lives at `.github/CODEOWNERS`.
 - Do not weaken branch protection or broaden workflow permissions unless the user explicitly asks.
