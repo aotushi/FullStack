@@ -19,12 +19,7 @@ function focusInput() {
     <section class="demo-panel">
       <p class="eyebrow">Vue CodeLab</p>
       <h1>组件二次封装</h1>
-      <MyInput
-        ref="inputRef"
-        v-model="modelValue"
-        placeholder="我自己写的组件"
-        show-password
-      >
+      <MyInput ref="inputRef" v-model="modelValue" placeholder="我自己写的组件" show-password>
         <template #prefix>封装</template>
         <template #append>CodeLab</template>
       </MyInput>

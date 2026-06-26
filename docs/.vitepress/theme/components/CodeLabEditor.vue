@@ -33,14 +33,13 @@ function languageName(filePath: string) {
 async function createEditor() {
   if (!host.value) return;
 
-  const [{ basicSetup }, { javascript }, { html }, { css }, { vue }] =
-    await Promise.all([
-      import("codemirror"),
-      import("@codemirror/lang-javascript"),
-      import("@codemirror/lang-html"),
-      import("@codemirror/lang-css"),
-      import("@codemirror/lang-vue"),
-    ]);
+  const [{ basicSetup }, { javascript }, { html }, { css }, { vue }] = await Promise.all([
+    import("codemirror"),
+    import("@codemirror/lang-javascript"),
+    import("@codemirror/lang-html"),
+    import("@codemirror/lang-css"),
+    import("@codemirror/lang-vue"),
+  ]);
 
   const extensions = [
     basicSetup,
@@ -97,7 +96,12 @@ onBeforeUnmount(() => {
       <div class="code-lab-actions" aria-label="Current file actions">
         <button type="button" title="Copy current file" @click="emit('copy')">Copy</button>
         <button type="button" title="Reset current file" @click="emit('reset')">Reset</button>
-        <button type="button" :disabled="busy || !hasChanges" title="Save current file" @click="emit('save')">
+        <button
+          type="button"
+          :disabled="busy || !hasChanges"
+          title="Save current file"
+          @click="emit('save')"
+        >
           Save
         </button>
       </div>

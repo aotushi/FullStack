@@ -27,6 +27,7 @@
 ```bash
 npm install
 npm run dev
+npm run format:check
 npm run docs:build
 npm run docs:preview
 ```
@@ -41,6 +42,17 @@ npm run dev
 
 For troubleshooting, `npm run docs:dev` and `npm run labs:server` can still be started separately.
 
+Formatting:
+
+```bash
+npm run format
+npm run format:check
+```
+
+Formatting uses Oxfmt. Legacy notes, archive content, generated output, and lab dependency folders are ignored so formatting can be introduced without rewriting old migrated material.
+Vite+ manages the formatter and staged-file hook configuration from [vite.config.ts](./vite.config.ts).
+After `npm install`, the project installs a pre-commit hook under `.vite-hooks/` that runs `npm run staged`.
+
 ## Git Workflow
 
 - Use branches for non-trivial work.
@@ -48,6 +60,8 @@ For troubleshooting, `npm run docs:dev` and `npm run labs:server` can still be s
 - Suggested branch names: `migration/<scope>`, `docs/<topic>`, `site/<change>`, `chore/<change>`.
 - Match commit messages to branch intent: `migration: ...`, `docs: ...`, `site: ...`, or `chore: ...`.
 - Before committing, verify that the current branch matches the work type.
+- Pre-commit runs `npm run staged` for staged files.
+- Run `npm run format:check` before larger site code, examples, or config changes.
 - Run `npm run docs:build` before merging site structure or content changes.
 
 ## GitHub Automation

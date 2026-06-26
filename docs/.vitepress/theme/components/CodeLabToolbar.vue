@@ -21,7 +21,12 @@ const emit = defineEmits<{
   <div class="code-lab-toolbar">
     <button type="button" title="Copy current file" @click="emit('copy')">Copy</button>
     <button type="button" title="Reset current file" @click="emit('reset')">Reset</button>
-    <button type="button" :disabled="busy || !hasChanges" title="Save current file" @click="emit('save')">
+    <button
+      type="button"
+      :disabled="busy || !hasChanges"
+      title="Save current file"
+      @click="emit('save')"
+    >
       Save
     </button>
     <button
@@ -40,7 +45,12 @@ const emit = defineEmits<{
     >
       Run
     </button>
-    <button type="button" :disabled="busy || !localAvailable" title="Stop lab dev server" @click="emit('stop')">
+    <button
+      type="button"
+      :disabled="busy || !localAvailable"
+      title="Stop lab dev server"
+      @click="emit('stop')"
+    >
       Stop
     </button>
     <button type="button" :disabled="busy" title="Refresh lab status" @click="emit('refresh')">

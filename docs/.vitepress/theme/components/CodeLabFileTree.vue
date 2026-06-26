@@ -12,7 +12,11 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <aside class="code-lab-tree" :class="{ 'code-lab-tree--collapsed': collapsed }" aria-label="Lab files">
+  <aside
+    class="code-lab-tree"
+    :class="{ 'code-lab-tree--collapsed': collapsed }"
+    aria-label="Lab files"
+  >
     <div class="code-lab-tree__title">
       <span v-if="!collapsed">Explorer</span>
       <button

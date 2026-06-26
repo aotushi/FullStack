@@ -70,6 +70,17 @@ This repository may contain runnable practice projects under `docs/projects/lega
 - Preview: `npm run docs:preview`
 - Build output: `docs/.vitepress/dist`
 
+## Formatting
+
+- Formatter: Vite+ `vp fmt` backed by Oxfmt.
+- Config: `vite.config.ts`.
+- Check formatting: `npm run format:check`.
+- Apply formatting: `npm run format`.
+- Staged-file check: `npm run staged`.
+- Pre-commit hook: `.vite-hooks/pre-commit`, installed by `npm run prepare`.
+- Legacy notes, archive content, generated output, and lab dependency folders are intentionally ignored.
+- Run `npm run format:check` before committing site code, examples, or config changes.
+
 ## Git Branch Workflow
 
 - Use a dedicated branch for any non-trivial work.
