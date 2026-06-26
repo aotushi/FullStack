@@ -90,7 +90,8 @@ async function detectLocalServer() {
     const status = await readLocalStatus(props.project);
     state.previewUrl = status.url ?? "";
     state.logs = status.logs;
-    state.status = status.running && status.url ? `Running at ${status.url}` : "Local lab server connected";
+    state.status =
+      status.running && status.url ? `Running at ${status.url}` : "Local lab server connected";
     if (!status.running && !status.url) await autoRunProject();
   } catch (error) {
     state.status = error instanceof Error ? error.message : String(error);
@@ -199,7 +200,8 @@ async function refreshStatus() {
     const status = await readLocalStatus(props.project);
     state.previewUrl = status.url ?? "";
     state.logs = status.logs;
-    state.status = status.running && status.url ? `Running at ${status.url}` : "Local lab server connected";
+    state.status =
+      status.running && status.url ? `Running at ${status.url}` : "Local lab server connected";
   } catch {
     // Status refresh is non-critical.
   }

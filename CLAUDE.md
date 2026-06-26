@@ -70,6 +70,15 @@ This repository may contain runnable practice projects under `docs/projects/lega
 - Preview: `npm run docs:preview`
 - Build output: `docs/.vitepress/dist`
 
+## Formatting
+
+- Formatter: Oxfmt.
+- Config: `.oxfmtrc.json`.
+- Check formatting: `npm run format:check`.
+- Apply formatting: `npm run format`.
+- Legacy notes, archive content, generated output, and lab dependency folders are intentionally ignored.
+- Run `npm run format:check` before committing site code, examples, or config changes.
+
 ## Git Branch Workflow
 
 - Use a dedicated branch for any non-trivial work.

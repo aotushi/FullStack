@@ -40,10 +40,20 @@ const emit = defineEmits<{
           >
             Run
           </button>
-          <button type="button" :disabled="busy || !localAvailable" title="Stop lab dev server" @click="emit('stop')">
+          <button
+            type="button"
+            :disabled="busy || !localAvailable"
+            title="Stop lab dev server"
+            @click="emit('stop')"
+          >
             Stop
           </button>
-          <button type="button" :disabled="busy" title="Refresh lab status" @click="emit('refresh')">
+          <button
+            type="button"
+            :disabled="busy"
+            title="Refresh lab status"
+            @click="emit('refresh')"
+          >
             Refresh
           </button>
         </div>

@@ -27,8 +27,8 @@ Vue 的 `h()` 可以创建一个 VNode。把目标组件、属性对象、插槽
 </template>
 
 <script setup lang="ts">
-import { h } from 'vue'
-import { ElInput } from 'element-plus'
+import { h } from "vue";
+import { ElInput } from "element-plus";
 </script>
 ```
 
@@ -42,25 +42,20 @@ import { ElInput } from 'element-plus'
 
 ```vue
 <template>
-  <MyInput
-    v-model="modelValue"
-    placeholder="我自己写的组件"
-    show-password
-    @change="handleChange"
-  >
+  <MyInput v-model="modelValue" placeholder="我自己写的组件" show-password @change="handleChange">
     <template #prefix>前缀</template>
     <template #append>append</template>
   </MyInput>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import MyInput from './components/MyInput.vue'
+import { ref } from "vue";
+import MyInput from "./components/MyInput.vue";
 
-const modelValue = ref('hello world')
+const modelValue = ref("hello world");
 
 function handleChange(value: string) {
-  console.log(value)
+  console.log(value);
 }
 </script>
 ```
@@ -70,10 +65,7 @@ function handleChange(value: string) {
 `v-model` 在组件上本质上会被转换成：
 
 ```vue
-<MyInput
-  :model-value="modelValue"
-  @update:modelValue="modelValue = $event"
-/>
+<MyInput :model-value="modelValue" @update:modelValue="modelValue = $event" />
 ```
 
 因此，只要封装组件把属性和事件一起透传给内部组件，`v-model` 就可以继续工作。
@@ -86,23 +78,19 @@ function handleChange(value: string) {
 
 ```vue
 <template>
-  <MyInput
-    ref="inputRef"
-    v-model="modelValue"
-    placeholder="我自己写的组件"
-  />
+  <MyInput ref="inputRef" v-model="modelValue" placeholder="我自己写的组件" />
 </template>
 
 <script setup lang="ts">
-import { ref, useTemplateRef } from 'vue'
-import MyInput from './components/MyInput.vue'
+import { ref, useTemplateRef } from "vue";
+import MyInput from "./components/MyInput.vue";
 
-const modelValue = ref('hello world')
-const input = useTemplateRef<InstanceType<typeof MyInput>>('inputRef')
+const modelValue = ref("hello world");
+const input = useTemplateRef<InstanceType<typeof MyInput>>("inputRef");
 
 setTimeout(() => {
-  input.value?.clear()
-}, 1000)
+  input.value?.clear();
+}, 1000);
 </script>
 ```
 
@@ -115,19 +103,19 @@ setTimeout(() => {
 </template>
 
 <script setup lang="ts">
-import { computed, h, useAttrs, useSlots } from 'vue'
-import type { ComponentInstance } from 'vue'
-import { ElInput } from 'element-plus'
+import { computed, h, useAttrs, useSlots } from "vue";
+import type { ComponentInstance } from "vue";
+import { ElInput } from "element-plus";
 
-type ElInputInstance = ComponentInstance<typeof ElInput>
+type ElInputInstance = ComponentInstance<typeof ElInput>;
 
-const attrs = useAttrs()
-const slots = useSlots()
+const attrs = useAttrs();
+const slots = useSlots();
 
-let innerInput: ElInputInstance | null = null
+let innerInput: ElInputInstance | null = null;
 
 function changeRef(instance: unknown) {
-  innerInput = instance as ElInputInstance | null
+  innerInput = instance as ElInputInstance | null;
 }
 
 const inputVNode = computed(() => {
@@ -138,20 +126,20 @@ const inputVNode = computed(() => {
       ref: changeRef,
     },
     slots,
-  )
-})
+  );
+});
 
 defineExpose({
   clear() {
-    innerInput?.clear()
+    innerInput?.clear();
   },
   focus() {
-    innerInput?.focus()
+    innerInput?.focus();
   },
   blur() {
-    innerInput?.blur()
+    innerInput?.blur();
   },
-})
+});
 </script>
 ```
 
@@ -164,19 +152,19 @@ defineExpose({
 核心思想可以概括成：
 
 ```ts
-import { getCurrentInstance } from 'vue'
-import type { ComponentInstance } from 'vue'
-import { ElInput } from 'element-plus'
+import { getCurrentInstance } from "vue";
+import type { ComponentInstance } from "vue";
+import { ElInput } from "element-plus";
 
-const vm = getCurrentInstance()
+const vm = getCurrentInstance();
 
 function changeRef(exposed: unknown) {
   if (vm) {
-    vm.exposed = exposed as Record<string, unknown>
+    vm.exposed = exposed as Record<string, unknown>;
   }
 }
 
-defineExpose({} as ComponentInstance<typeof ElInput>)
+defineExpose({} as ComponentInstance<typeof ElInput>);
 ```
 
 这个技巧的目的：
@@ -190,13 +178,13 @@ defineExpose({} as ComponentInstance<typeof ElInput>)
 
 二次封装最容易误判的一点是：运行时能透传，不代表类型系统一定能完全理解。
 
-| 内容 | 运行时透传 | 类型/提示 |
-| --- | --- | --- |
-| props | 可以通过 `$attrs` 透传 | 若未声明 props，编辑器提示可能不完整 |
-| events | 可以通过 `$attrs` 透传 | 若未声明 emits，事件提示可能不完整 |
-| slots | 可以通过 `$slots` 透传 | 复杂插槽最好显式声明 |
-| methods | 需要 `ref` + `defineExpose` | 可以用 `ComponentInstance<typeof ElInput>` 辅助 |
-| v-model | 依赖 `modelValue` + `update:modelValue` 透传 | 类型提示取决于 props/emits 声明 |
+| 内容    | 运行时透传                                   | 类型/提示                                       |
+| ------- | -------------------------------------------- | ----------------------------------------------- |
+| props   | 可以通过 `$attrs` 透传                       | 若未声明 props，编辑器提示可能不完整            |
+| events  | 可以通过 `$attrs` 透传                       | 若未声明 emits，事件提示可能不完整              |
+| slots   | 可以通过 `$slots` 透传                       | 复杂插槽最好显式声明                            |
+| methods | 需要 `ref` + `defineExpose`                  | 可以用 `ComponentInstance<typeof ElInput>` 辅助 |
+| v-model | 依赖 `modelValue` + `update:modelValue` 透传 | 类型提示取决于 props/emits 声明                 |
 
 所以，封装组件有两种路线：
 

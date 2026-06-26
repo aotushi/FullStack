@@ -94,7 +94,12 @@ async function walkFiles(dir, prefix = "") {
 
   for (const entry of entries) {
     if (entry.name === "node_modules" || entry.name === "dist") continue;
-    if (entry.name === "package-lock.json" || entry.name === "pnpm-lock.yaml" || entry.name === "yarn.lock") continue;
+    if (
+      entry.name === "package-lock.json" ||
+      entry.name === "pnpm-lock.yaml" ||
+      entry.name === "yarn.lock"
+    )
+      continue;
     const fullPath = path.join(dir, entry.name);
     const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
 
