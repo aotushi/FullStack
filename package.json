@@ -3,11 +3,28 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "node scripts/dev.mjs",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
-    "docs:preview": "vitepress preview docs"
+    "docs:preview": "vitepress preview docs",
+    "labs:server": "node scripts/lab-server.mjs"
   },
   "devDependencies": {
     "vitepress": "^1.6.4"
+  },
+  "dependencies": {
+    "@codemirror/lang-css": "^6.3.1",
+    "@codemirror/lang-html": "^6.4.11",
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/lang-vue": "^0.1.3",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/state": "^6.7.0",
+    "@codemirror/view": "^6.43.3",
+    "@lezer/highlight": "^1.2.3",
+    "@vitejs/plugin-vue": "^6.0.7",
+    "@vue/compiler-sfc": "^3.5.39",
+    "codemirror": "^6.0.2",
+    "vite": "^5.4.21",
+    "vue": "^3.5.39"
   }
 }

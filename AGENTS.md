@@ -64,7 +64,8 @@ This repository may contain runnable practice projects under `docs/projects/lega
 - Site root: `docs/`
 - Config: `docs/.vitepress/config.ts`
 - `legacy/` content is excluded by `srcExclude`.
-- Local dev: `npm run docs:dev`
+- Local dev: `npm run dev` starts both VitePress and the local CodeLab server. Defaults start from VitePress `5180` and CodeLab API `4180` to avoid common `5173` collisions with other VitePress projects.
+- Troubleshooting: `npm run docs:dev` and `npm run labs:server` can still be run separately.
 - Build: `npm run docs:build`
 - Preview: `npm run docs:preview`
 - Build output: `docs/.vitepress/dist`

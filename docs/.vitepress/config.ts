@@ -12,7 +12,14 @@ const frontend = [
   { text: "TypeScript", link: "/frontend_typescript/" },
   { text: "Browser", link: "/frontend_browser/" },
   { text: "UI", link: "/frontend_ui/" },
-  { text: "Vue", link: "/frontend_vue/" },
+  {
+    text: "Vue",
+    collapsed: true,
+    items: [
+      { text: "Overview", link: "/frontend_vue/" },
+      { text: "组件封装", link: "/frontend_vue/component-wrapper" },
+    ],
+  },
   { text: "React", link: "/frontend_react/" },
   { text: "Rendering", link: "/frontend_rendering/" },
   { text: "Build", link: "/frontend_build/" },
