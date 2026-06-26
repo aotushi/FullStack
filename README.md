@@ -55,7 +55,9 @@ After `npm install`, the project installs a pre-commit hook under `.vite-hooks/`
 
 ## Git Workflow
 
-- Use branches for non-trivial work.
+- `master` is the stable branch and deployment source.
+- `docs/update` is the long-lived branch for normal document updates.
+- Use short-lived branches for non-trivial structure, site tooling, deployment, or migration work.
 - Keep structural migration, content rewriting, and deployment/config changes in separate branches when possible.
 - Suggested branch names: `migration/<scope>`, `docs/<topic>`, `site/<change>`, `chore/<change>`.
 - Match commit messages to branch intent: `migration: ...`, `docs: ...`, `site: ...`, or `chore: ...`.
@@ -63,11 +65,14 @@ After `npm install`, the project installs a pre-commit hook under `.vite-hooks/`
 - Pre-commit runs `npm run staged` for staged files.
 - Run `npm run format:check` before larger site code, examples, or config changes.
 - Run `npm run docs:build` before merging site structure or content changes.
+- PRs from `docs/update` use merge commits and keep the branch alive. After `master` updates, GitHub Actions fast-forwards `docs/update` back to `master`.
+- PRs from short-lived branches use squash merge and delete the branch after merge.
 
 ## GitHub Automation
 
 - Pull requests run [docs-build](./.github/workflows/docs-build.yml).
 - PRs labeled `automerge` enable GitHub auto-merge after required checks and reviews pass.
+- [sync-docs-update](./.github/workflows/sync-docs-update.yml) keeps the long-lived `docs/update` branch aligned with `master`.
 - Branch protection guidance lives in [.github/BRANCH_PROTECTION.md](./.github/BRANCH_PROTECTION.md).
 - Code ownership rules live in [.github/CODEOWNERS](./.github/CODEOWNERS).
 

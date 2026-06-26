@@ -14,6 +14,11 @@ Rules:
 - Allow auto-merge at repository level.
 - Delete head branches after merge at repository level.
 - Do not allow bypassing these settings unless intentionally maintaining the repository.
+- Keep `docs/update` as a long-lived document update branch.
+- Auto-merge behavior:
+  - `docs/update` PRs use merge commits and keep the branch.
+  - Short-lived branch PRs use squash merge and delete the branch.
+- `.github/workflows/sync-docs-update.yml` fast-forwards `docs/update` after `master` changes.
 
 Repository settings:
 
