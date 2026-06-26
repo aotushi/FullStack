@@ -1,7 +1,17 @@
 import { defineConfig } from "vitepress";
 
 const web = [
-  { text: "Web Foundation", link: "/web_foundation/" },
+  {
+    text: "Web Foundation",
+    collapsed: true,
+    items: [
+      { text: "Overview", link: "/web_foundation/" },
+      {
+        text: "浏览器输入 URL 后发生了什么",
+        link: "/web_foundation/browser-url-lifecycle",
+      },
+    ],
+  },
   { text: "Web Security", link: "/web_security/" },
 ];
 
@@ -11,6 +21,19 @@ const frontend = [
   { text: "JavaScript", link: "/frontend_javascript/" },
   { text: "TypeScript", link: "/frontend_typescript/" },
   { text: "Browser", link: "/frontend_browser/" },
+  {
+    text: "Data Fetching",
+    collapsed: true,
+    items: [
+      { text: "Overview", link: "/frontend_data_fetching/" },
+      { text: "Fundamentals", link: "/frontend_data_fetching/fundamentals" },
+      { text: "Clients", link: "/frontend_data_fetching/clients" },
+      {
+        text: "Design Guidelines",
+        link: "/frontend_data_fetching/design-guidelines",
+      },
+    ],
+  },
   { text: "UI", link: "/frontend_ui/" },
   {
     text: "Vue",

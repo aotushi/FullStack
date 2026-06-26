@@ -16,6 +16,7 @@
 - [frontend_javascript](./frontend_javascript/)
 - [frontend_typescript](./frontend_typescript/)
 - [frontend_browser](./frontend_browser/)
+- [frontend_data_fetching](./frontend_data_fetching/)
 - [frontend_ui](./frontend_ui/)
 - [frontend_vue](./frontend_vue/)
 - [frontend_react](./frontend_react/)
