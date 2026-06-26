@@ -50,6 +50,8 @@ npm run format:check
 ```
 
 Formatting uses Oxfmt. Legacy notes, archive content, generated output, and lab dependency folders are ignored so formatting can be introduced without rewriting old migrated material.
+Vite+ manages the formatter and staged-file hook configuration from [vite.config.ts](./vite.config.ts).
+After `npm install`, the project installs a pre-commit hook under `.vite-hooks/` that runs `npm run staged`.
 
 ## Git Workflow
 
@@ -58,7 +60,8 @@ Formatting uses Oxfmt. Legacy notes, archive content, generated output, and lab 
 - Suggested branch names: `migration/<scope>`, `docs/<topic>`, `site/<change>`, `chore/<change>`.
 - Match commit messages to branch intent: `migration: ...`, `docs: ...`, `site: ...`, or `chore: ...`.
 - Before committing, verify that the current branch matches the work type.
-- Run `npm run format:check` before committing site code, examples, or config changes.
+- Pre-commit runs `npm run staged` for staged files.
+- Run `npm run format:check` before larger site code, examples, or config changes.
 - Run `npm run docs:build` before merging site structure or content changes.
 
 ## GitHub Automation

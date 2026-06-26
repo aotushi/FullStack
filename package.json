@@ -7,12 +7,14 @@
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
-    "format": "oxfmt --write .",
-    "format:check": "oxfmt --check .",
-    "labs:server": "node scripts/lab-server.mjs"
+    "format": "vp fmt --write .",
+    "format:check": "vp fmt --check .",
+    "labs:server": "node scripts/lab-server.mjs",
+    "prepare": "vp config --hooks-dir .vite-hooks --no-agent",
+    "staged": "vp staged"
   },
   "devDependencies": {
-    "oxfmt": "^0.56.0",
+    "vite-plus": "^0.2.1",
     "vitepress": "^1.6.4"
   },
   "dependencies": {
