@@ -24,9 +24,14 @@ Main topic groups:
 
 Each topic directory under `docs/` should contain:
 
-- `README.md` - topic scope, subtopics, and current migration notes.
+- `index.md` - public VitePress overview page for the topic route, for example `/frontend_data_fetching/`.
+- `README.md` - topic scope, subtopics, and current migration notes. It may mirror `index.md` while the topic is small.
 - `legacy/` - old moved content awaiting review and rewriting.
 - focused Markdown notes or subdirectories added later as content is rewritten.
+
+When adding a new topic to the sidebar, verify that its linked route resolves locally. A sidebar link such as `/frontend_data_fetching/` requires `docs/frontend_data_fetching/index.md`.
+
+If a topic has subpages, the sidebar entry should be a collapsible group with an `Overview` link plus one child link per subpage. Do not add only the parent topic link when the topic already contains visible child pages.
 
 ## Migration Rules
 

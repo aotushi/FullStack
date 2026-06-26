@@ -12,6 +12,13 @@
 - [AGENTS.md](./AGENTS.md) - Codex 工作入口。
 - [CLAUDE.md](./CLAUDE.md) - Claude Code 工作入口。
 
+Topic directory rule:
+
+- `index.md` is the public VitePress overview page for a topic route such as `/frontend_data_fetching/`.
+- `README.md` records topic scope, subtopics, and migration notes. It can mirror `index.md` while the topic is small.
+- `legacy/` stores old moved content before review and rewriting.
+- Sidebar entries for topics with subpages should be collapsible groups with `Overview` plus child links, not a single parent-only link.
+
 ## Topic Groups
 
 - `docs/web_*`
