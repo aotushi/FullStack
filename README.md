@@ -26,10 +26,20 @@
 
 ```bash
 npm install
-npm run docs:dev
+npm run dev
 npm run docs:build
 npm run docs:preview
 ```
+
+CodeLab local mode:
+
+```bash
+npm run dev
+```
+
+`npm run dev` starts both VitePress and the local CodeLab server. It uses project-local defaults starting from `5180` for VitePress and `4180` for the CodeLab API, then falls forward if a port is already occupied. The VitePress site can display CodeLab examples without the local server, but the lab server enables saving lab files, installing lab dependencies, and running each lab's local dev server for iframe preview.
+
+For troubleshooting, `npm run docs:dev` and `npm run labs:server` can still be started separately.
 
 ## Git Workflow
 

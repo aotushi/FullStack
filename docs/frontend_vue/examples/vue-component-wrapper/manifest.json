@@ -1,0 +1,11 @@
+{
+  "id": "vue-component-wrapper",
+  "title": "Vue 组件二次封装实验",
+  "description": "一个可安装依赖并本地运行的 Element Plus 输入框封装示例。",
+  "defaultFile": "src/components/MyInput.vue",
+  "runnable": true,
+  "installable": true,
+  "scripts": {
+    "dev": "npm run dev"
+  }
+}
