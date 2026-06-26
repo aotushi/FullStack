@@ -1,0 +1,60 @@
+name: open-docs-update-pr
+
+on:
+  push:
+    branches:
+      - docs/update
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: open-docs-update-pr
+  cancel-in-progress: true
+
+jobs:
+  open:
+    name: open-docs-update-pr
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout docs/update
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: docs/update
+
+      - name: Detect changes against master
+        id: diff
+        run: |
+          git fetch origin master docs/update
+
+          if git diff --quiet origin/master...origin/docs/update; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create or update pull request
+        if: steps.diff.outputs.has_changes == 'true'
+        run: |
+          pr_url="$(gh pr list \
+            --base master \
+            --head docs/update \
+            --state open \
+            --json url \
+            --jq '.[0].url // ""')"
+
+          if [ -z "$pr_url" ]; then
+            pr_url="$(gh pr create \
+              --base master \
+              --head docs/update \
+              --title "docs: update knowledge base" \
+              --body "Automated pull request for ordinary documentation updates from docs/update.")"
+          fi
+
+          gh pr edit "$pr_url" --add-label automerge
+          gh pr merge "$pr_url" --auto --merge
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -118,6 +118,7 @@ When the user asks to commit:
 ## GitHub Automation
 
 - Pull requests must pass `.github/workflows/docs-build.yml`.
+- Pushing to `docs/update` triggers `.github/workflows/open-docs-update-pr.yml`, which opens or updates a PR to `master`, applies the `automerge` label, and enables merge-commit auto-merge.
 - The `automerge` label enables `.github/workflows/enable-automerge.yml`, which uses GitHub auto-merge and waits for required checks/reviews.
 - Pull requests from `docs/update` use `gh pr merge --auto --merge` so the long-lived branch history stays aligned with `master`.
 - Pull requests from short-lived branches use `gh pr merge --auto --squash --delete-branch`.
