@@ -78,6 +78,7 @@ After `npm install`, the project installs a pre-commit hook under `.vite-hooks/`
 ## GitHub Automation
 
 - Pull requests run [docs-build](./.github/workflows/docs-build.yml).
+- Pushing to `docs/update` opens or updates a PR to `master`, applies the `automerge` label, and enables merge-commit auto-merge.
 - PRs labeled `automerge` enable GitHub auto-merge after required checks and reviews pass.
 - [sync-docs-update](./.github/workflows/sync-docs-update.yml) keeps the long-lived `docs/update` branch aligned with `master`.
 - Branch protection guidance lives in [.github/BRANCH_PROTECTION.md](./.github/BRANCH_PROTECTION.md).

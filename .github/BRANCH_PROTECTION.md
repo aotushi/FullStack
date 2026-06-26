@@ -18,6 +18,7 @@ Rules:
 - Auto-merge behavior:
   - `docs/update` PRs use merge commits and keep the branch.
   - Short-lived branch PRs use squash merge and delete the branch.
+- `.github/workflows/open-docs-update-pr.yml` opens or updates the `docs/update` PR after pushes to the long-lived docs branch.
 - `.github/workflows/sync-docs-update.yml` fast-forwards `docs/update` after `master` changes.
 
 Repository settings:
