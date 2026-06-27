@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
@@ -13,6 +14,10 @@ function readOption(names, fallback) {
     }
   }
   return fallback;
+}
+
+function hasFlag(names) {
+  return process.argv.some((arg) => names.includes(arg));
 }
 
 function isPortAvailable(port) {
@@ -43,6 +48,23 @@ const labsPreviewPort = readOption(
   ["--labs-preview-port"],
   Number(process.env.LABS_PREVIEW_PORT || 5190),
 );
+const workerEnabled = !hasFlag(["--no-worker"]) && process.env.WORKER_DEV !== "0";
+const workerPort = workerEnabled
+  ? await findAvailablePort(readOption(["--worker-port"], Number(process.env.WORKER_PORT || 8787)))
+  : null;
+
+if (workerEnabled && !existsSync(path.join(root, "docs", ".vitepress", "dist", "index.html"))) {
+  process.stdout.write("[dev] Building static assets for local Worker dev...\n");
+  const build = spawnSync("npm", ["run", "docs:build"], {
+    cwd: root,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
+
+  if (build.status !== 0) {
+    process.exit(build.status ?? 1);
+  }
+}
 
 const sharedEnv = {
   ...process.env,
@@ -50,6 +72,13 @@ const sharedEnv = {
   LABS_PORT: String(labsPort),
   LABS_PREVIEW_PORT: String(labsPreviewPort),
   VITE_LABS_PORT: String(labsPort),
+  ...(workerPort
+    ? {
+        WORKER_PORT: String(workerPort),
+        VITE_WORKER_PORT: String(workerPort),
+        VITE_WORKER_API_BASE: `http://127.0.0.1:${workerPort}`,
+      }
+    : {}),
 };
 
 const processes = [
@@ -71,6 +100,23 @@ const processes = [
     command: process.execPath,
     args: [path.join(root, "scripts", "lab-server.mjs")],
   },
+  ...(workerPort
+    ? [
+        {
+          name: "worker",
+          command: process.execPath,
+          args: [
+            path.join(root, "node_modules", "wrangler", "bin", "wrangler.js"),
+            "dev",
+            "--ip",
+            "127.0.0.1",
+            "--port",
+            String(workerPort),
+            "--show-interactive-dev-session=false",
+          ],
+        },
+      ]
+    : []),
 ];
 
 const children = new Map();

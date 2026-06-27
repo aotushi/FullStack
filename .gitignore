@@ -4,3 +4,4 @@ node_modules
 Notes/.obsidian/
 docs/.vitepress/cache
 docs/.vitepress/dist
+.wrangler/

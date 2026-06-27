@@ -1,5 +1,7 @@
 import { defineConfig } from "vitepress";
 
+const workerPort = Number(process.env.WORKER_PORT || 8787);
+
 const web = [
   {
     text: "Web Foundation",
@@ -85,6 +87,16 @@ export default defineConfig({
   cleanUrls: true,
   ignoreDeadLinks: true,
   srcExclude: ["**/legacy/**"],
+  vite: {
+    server: {
+      proxy: {
+        "/api": {
+          target: `http://127.0.0.1:${workerPort}`,
+          changeOrigin: true,
+        },
+      },
+    },
+  },
   themeConfig: {
     nav: [
       { text: "Home", link: "/" },

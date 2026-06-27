@@ -1,5 +1,9 @@
 # 浏览器输入 URL 后发生了什么
 
+<script setup>
+import UrlLifecyclePlayground from "./components/url-lifecycle/UrlLifecyclePlayground.vue";
+</script>
+
 ## 总览
 
 一次典型访问大致会经过这些阶段：
@@ -15,6 +19,10 @@
 
 这个过程不是一个单点动作，而是浏览器、操作系统、DNS、网络协议、服务器和渲染引擎共同完成的一条链路。
 
+## 交互示例
+
+<UrlLifecyclePlayground />
+
 ## URL 解析
 
 URL 是浏览器访问资源的地址描述。
@@ -24,15 +32,15 @@ URL 是浏览器访问资源的地址描述。
 例如：
 
 ```text
-https://example.com/docs?id=1
+https://<domain>/<path>?<query>
 ```
 
 可以拆成：
 
 - `https`：协议
-- `example.com`：主机名
-- `/docs`：路径
-- `id=1`：查询参数
+- `<domain>`：主机名
+- `<path>`：路径
+- `<query>`：查询参数
 
 如果用户没有输入协议，现代浏览器通常会尝试补全协议，优先使用 HTTPS。
 
@@ -86,8 +94,8 @@ DNS 也不只是“查 IP”。它还可能参与负载均衡、就近访问、C
 例如：
 
 ```text
-GET /docs HTTP/1.1
-Host: example.com
+GET /<path> HTTP/1.1
+Host: <domain>
 Accept: text/html
 ```
 

@@ -7,6 +7,10 @@
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
+    "worker:dev": "npm run docs:build && wrangler dev",
+    "worker:deploy": "npm run docs:build && wrangler deploy",
+    "worker:dry-run": "npm run docs:build && wrangler deploy --dry-run --outdir .wrangler/dry-run",
+    "worker:types": "wrangler types --include-runtime false",
     "format": "vp fmt --write .",
     "format:check": "vp fmt --check .",
     "labs:server": "node scripts/lab-server.mjs",
@@ -14,8 +18,11 @@
     "staged": "vp staged"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260627.1",
+    "@types/node": "^26.0.1",
     "vite-plus": "^0.2.1",
-    "vitepress": "^1.6.4"
+    "vitepress": "^1.6.4",
+    "wrangler": "^4.105.0"
   },
   "dependencies": {
     "@codemirror/lang-css": "^6.3.1",

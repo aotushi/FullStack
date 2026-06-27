@@ -33,6 +33,8 @@ When adding a new topic to the sidebar, verify that its linked route resolves lo
 
 If a topic has subpages, the sidebar entry should be a collapsible group with an `Overview` link plus one child link per subpage. Do not add only the parent topic link when the topic already contains visible child pages.
 
+Topic-specific VitePress components should live beside the topic that uses them, for example `docs/web_foundation/components/UrlLifecyclePlayground.vue`. Promote a component to `.vitepress/theme/components` only when it is reused across multiple topic groups or is a true site-wide primitive such as layout, navigation, callout, or shared lab chrome.
+
 ## Migration Rules
 
 - Do directory-level moves first. Do not split or rewrite old articles during structural migration unless explicitly requested.
@@ -55,6 +57,7 @@ When rewriting or creating notes:
 - Keep topic names stable and flat at the top level.
 - Put framework-specific state, routing, and patterns inside `frontend_vue` or `frontend_react`, not in separate top-level folders unless the user asks.
 - Put build tooling in `frontend_build`; put production release and hosting operations in `devops_deploy`.
+- Keep interactive examples scoped to the nearest topic by default. A component used by one article or one topic should stay in that topic directory; a component used by multiple unrelated topics may move to `.vitepress/theme/components`.
 
 ## Project Work
 
@@ -69,11 +72,26 @@ This repository may contain runnable practice projects under `docs/projects/lega
 - Site root: `docs/`
 - Config: `docs/.vitepress/config.ts`
 - `legacy/` content is excluded by `srcExclude`.
-- Local dev: `npm run dev` starts both VitePress and the local CodeLab server. Defaults start from VitePress `5180` and CodeLab API `4180` to avoid common `5173` collisions with other VitePress projects.
-- Troubleshooting: `npm run docs:dev` and `npm run labs:server` can still be run separately.
+- Local dev: `npm run dev` starts VitePress, the local CodeLab server, and the local Worker API. Defaults start from VitePress `5180`, CodeLab API `4180`, and Worker API `8787` to avoid common `5173` collisions with other VitePress projects.
+- VitePress dev proxies `/api/*` to the local Worker API so components can use same-origin API paths in development and production.
+- Troubleshooting: `npm run docs:dev`, `npm run labs:server`, and `npx wrangler dev` can still be run separately. Use `npm run dev -- --no-worker` to skip Worker startup.
 - Build: `npm run docs:build`
 - Preview: `npm run docs:preview`
 - Build output: `docs/.vitepress/dist`
+
+## Cloudflare Worker Deployment
+
+- Production target: Cloudflare Workers Static Assets.
+- Worker config: `wrangler.jsonc`.
+- Worker entry: `worker/index.ts`.
+- VitePress static assets directory: `docs/.vitepress/dist`.
+- API routes live under `/api/*`; current lab routes live under `/api/labs/*`.
+- Local Worker dev: `npm run worker:dev`.
+- Normal hot-reload development: `npm run dev`.
+- Validate Worker bundle: `npm run worker:dry-run`.
+- Deploy Worker: `npm run worker:deploy`.
+- Regenerate Worker binding types after changing `wrangler.jsonc`: `npm run worker:types`.
+- Do not add remote database bindings or run remote Cloudflare data commands without explicit user approval.
 
 ## Formatting
 
