@@ -30,3 +30,6 @@ jobs:
 
       - name: Build VitePress site
         run: npm run docs:build
+
+      - name: Validate Worker deployment bundle
+        run: npx wrangler deploy --dry-run --outdir .wrangler/dry-run

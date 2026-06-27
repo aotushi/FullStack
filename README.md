@@ -18,6 +18,7 @@ Topic directory rule:
 - `README.md` records topic scope, subtopics, and migration notes. It can mirror `index.md` while the topic is small.
 - `legacy/` stores old moved content before review and rewriting.
 - Sidebar entries for topics with subpages should be collapsible groups with `Overview` plus child links, not a single parent-only link.
+- Topic-specific VitePress components live under the topic directory, such as `docs/web_foundation/components/`. Move a component to `.vitepress/theme/components` only when it is reused across multiple topic groups or is a site-wide primitive.
 
 ## Topic Groups
 
@@ -37,6 +38,8 @@ npm run dev
 npm run format:check
 npm run docs:build
 npm run docs:preview
+npm run worker:dev
+npm run worker:dry-run
 ```
 
 CodeLab local mode:
@@ -45,9 +48,21 @@ CodeLab local mode:
 npm run dev
 ```
 
-`npm run dev` starts both VitePress and the local CodeLab server. It uses project-local defaults starting from `5180` for VitePress and `4180` for the CodeLab API, then falls forward if a port is already occupied. The VitePress site can display CodeLab examples without the local server, but the lab server enables saving lab files, installing lab dependencies, and running each lab's local dev server for iframe preview.
+`npm run dev` starts VitePress, the local CodeLab server, and the local Worker API. It uses project-local defaults starting from `5180` for VitePress, `4180` for the CodeLab API, and `8787` for the Worker API, then falls forward if a port is already occupied. VitePress proxies `/api/*` to the local Worker so document components can use the same API paths locally and in production.
 
-For troubleshooting, `npm run docs:dev` and `npm run labs:server` can still be started separately.
+The VitePress site can display CodeLab examples without the local server, but the lab server enables saving lab files, installing lab dependencies, and running each lab's local dev server for iframe preview.
+
+For troubleshooting, `npm run docs:dev`, `npm run labs:server`, and `npx wrangler dev` can still be started separately. Use `npm run dev -- --no-worker` to skip the local Worker API.
+
+Worker deployment mode:
+
+```bash
+npm run worker:dev
+npm run worker:dry-run
+npm run worker:deploy
+```
+
+The production deployment target is Cloudflare Workers Static Assets. VitePress builds to `docs/.vitepress/dist`, and the Worker serves those files while handling `/api/*` lab routes. The first lab endpoint is `/api/labs/url-lifecycle`. `npm run worker:dev` validates the Worker Static Assets deployment shape; ordinary writing and component work should usually use `npm run dev`.
 
 Formatting:
 
