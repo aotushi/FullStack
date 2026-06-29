@@ -589,8 +589,8 @@ sourceMap: false,
 
 
 ## 屏幕/视口/像素概念
-​在学习移动端之前，我们先来学习一些基础的概念和专有名词，这些知识会在以后的面试、工作沟通中经常用到。
-> [移动端前端开发之viewport | 思忆技术 (si-yee.com)](https://blog.si-yee.com/2019/04/11/%E7%A7%BB%E5%8A%A8%E7%AB%AF%E5%89%8D%E7%AB%AF%E5%BC%80%E5%8F%91%E4%B9%8Bviewport/)
+在学习移动端之前，我们先来学习一些基础的概念和专有名词，这些知识会在以后的面试、工作沟通中经常用到。
+
 
 
 ## 屏幕相关
@@ -986,7 +986,7 @@ device-width = 设备的物理分辨率 / (devicePixelRatio * scale)
 **viewport-fit**
 值设置为 cover 可以解决『刘海屏』的留白问题
 
- 
+
 #### 注意事项
 
 要把当前的`viewport`宽度设为`ideal viewport`的宽度，既可以设置`width=device-width`，也可以设置`initial-scale=1`。但这两者各有一个小缺陷，就是`iPhone`、`iPad`以及`IE`会横竖屏不分，通通以竖屏的`ideal viewport`宽度为准。所以，最完美的写法应该是，两者都写上去，这样就`initial-scale=1`解决了`iPhone`、`iPad`的毛病，`width=device-width`则解决了`IE`的毛病。当两个设置冲突时，布局视口取两者最大值。
@@ -2048,5 +2048,4 @@ let isIe = document.documentMode
 
 
 ## PC端适配方案
-
 

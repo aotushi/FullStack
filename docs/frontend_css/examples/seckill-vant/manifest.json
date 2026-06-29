@@ -1,0 +1,11 @@
+{
+  "id": "seckill-vant",
+  "title": "Vant + vw 秒杀活动页",
+  "description": "组件库(Vant) + postcss-px-to-viewport 按文件路径切基准（vant 用 375、自有页面用 750），全程按设计稿写 px 自动转 vw。",
+  "defaultFile": "src/components/SeckillCard.vue",
+  "runnable": true,
+  "installable": true,
+  "scripts": {
+    "dev": "npm run dev"
+  }
+}
