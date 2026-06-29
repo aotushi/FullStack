@@ -1,0 +1,9 @@
+{
+  "id": "h5-scaffold",
+  "title": "脚手架预置接线 + vw 列表页",
+  "description": "脚手架把方案一那套（postcss 转 vw + 组件库）连同按需引入、路由、Pinia、vconsole 调试一次性接好，clone 下来改业务就能上线。",
+  "defaultFile": "src/views/GoodsList.vue",
+  "runnable": true,
+  "installable": true,
+  "scripts": { "dev": "npm run dev" }
+}

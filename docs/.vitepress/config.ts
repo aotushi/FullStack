@@ -19,7 +19,50 @@ const web = [
 
 const frontend = [
   { text: "HTML", link: "/frontend_html/" },
-  { text: "CSS", link: "/frontend_css/" },
+  {
+    text: "CSS",
+    collapsed: true,
+    items: [
+      { text: "Overview", link: "/frontend_css/" },
+      {
+        text: "Responsive Design",
+        collapsed: false,
+        items: [
+          { text: "Overview", link: "/frontend_css/responsive_design/" },
+          {
+            text: "单位与等比还原",
+            link: "/frontend_css/responsive_design/units-and-scaling",
+          },
+          {
+            text: "通用响应式方案",
+            link: "/frontend_css/responsive_design/general-responsive",
+          },
+          {
+            text: "桌面网站与后台",
+            link: "/frontend_css/responsive_design/case-desktop",
+          },
+          {
+            text: "移动端适配",
+            collapsed: false,
+            items: [
+              {
+                text: "背景：像素与视口",
+                link: "/frontend_css/responsive_design/pixels-and-viewport",
+              },
+              {
+                text: "案例：适配实战",
+                link: "/frontend_css/responsive_design/case-mobile-h5",
+              },
+            ],
+          },
+          {
+            text: "大屏看板",
+            link: "/frontend_css/responsive_design/case-dashboard",
+          },
+        ],
+      },
+    ],
+  },
   { text: "JavaScript", link: "/frontend_javascript/" },
   { text: "TypeScript", link: "/frontend_typescript/" },
   { text: "Browser", link: "/frontend_browser/" },
@@ -70,7 +113,17 @@ const backend = [
 ];
 
 const client = [
-  { text: "Mobile", link: "/client_mobile/" },
+  {
+    text: "Mobile",
+    collapsed: true,
+    items: [
+      { text: "Overview", link: "/client_mobile/" },
+      {
+        text: "触摸事件与真机调试",
+        link: "/client_mobile/touch-events-and-debugging",
+      },
+    ],
+  },
   { text: "Desktop", link: "/client_desktop/" },
 ];
 

@@ -1,0 +1,17 @@
+{
+  "name": "seckill-vant-lab",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite"
+  },
+  "dependencies": {
+    "vant": "^4.9.21",
+    "vue": "^3.5.39"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.7",
+    "postcss-px-to-viewport-8-plugin": "^1.2.5",
+    "vite": "^7.2.7"
+  }
+}
