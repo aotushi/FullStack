@@ -1,4 +1,5 @@
 const LOCAL_SERVER_URL = `http://127.0.0.1:${import.meta.env.VITE_LABS_PORT || "4180"}`;
+const CAN_USE_LOCAL_SERVER = import.meta.env.DEV;
 
 export interface LocalStatus {
   running: boolean;
@@ -8,6 +9,10 @@ export interface LocalStatus {
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  if (!CAN_USE_LOCAL_SERVER) {
+    throw new Error("Local lab server is only available during local development.");
+  }
+
   const headers = options?.body
     ? {
         "content-type": "application/json",
@@ -28,6 +33,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export async function checkLocalServer() {
+  if (!CAN_USE_LOCAL_SERVER) return false;
+
   try {
     const response = await fetch(`${LOCAL_SERVER_URL}/api/health`);
     return response.ok;
