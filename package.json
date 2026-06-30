@@ -14,7 +14,7 @@
     "format": "vp fmt --write .",
     "format:check": "vp fmt --check .",
     "labs:server": "node scripts/lab-server.mjs",
-    "prepare": "vp config --hooks-dir .vite-hooks --no-agent",
+    "prepare": "node scripts/prepare.mjs",
     "staged": "vp staged"
   },
   "devDependencies": {
@@ -33,6 +33,7 @@
     "@codemirror/state": "^6.7.0",
     "@codemirror/view": "^6.43.3",
     "@lezer/highlight": "^1.2.3",
+    "@stackblitz/sdk": "^1.11.0",
     "@vitejs/plugin-vue": "^6.0.7",
     "@vue/compiler-sfc": "^3.5.39",
     "codemirror": "^6.0.2",

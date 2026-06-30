@@ -1,5 +1,6 @@
 <script setup>
 import ViewportDemo from "./components/ViewportDemo.vue";
+import SeckillStackblitz from "./components/SeckillStackblitz.vue";
 </script>
 
 # 移动端适配
@@ -326,6 +327,10 @@ const time = ref(2 * 60 * 60 * 1000); // 距结束 2 小时
   project="seckill-vant"
   default-file="src/components/SeckillCard.vue"
 />
+
+上面代码区连本地 `lab-server`，只有本机能跑。在线访客可以点下面按钮，把同一套源码一键搬到 StackBlitz 云端 WebContainer 打开——在那里真实 `npm install` + `vite dev`，改代码即时看 `postcss` 双基准（Vant `375` / 自写页 `750`）把 `px` 转成 `vw` 的效果：
+
+<SeckillStackblitz />
 
 ### 方案二：现成脚手架
 
