@@ -14,7 +14,7 @@
     "format": "vp fmt --write .",
     "format:check": "vp fmt --check .",
     "labs:server": "node scripts/lab-server.mjs",
-    "prepare": "vp config --hooks-dir .vite-hooks --no-agent",
+    "prepare": "node scripts/prepare.mjs",
     "staged": "vp staged"
   },
   "devDependencies": {
