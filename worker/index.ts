@@ -19,7 +19,7 @@ export default {
     const url = new URL(request.url);
 
     try {
-      if (url.pathname === "/api/health") {
+      if (url.pathname === "/health" || url.pathname === "/api/health") {
         return json({
           ok: true,
           service: "fullstack-worker",
