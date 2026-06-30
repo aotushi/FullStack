@@ -1,0 +1,69 @@
+name: merge-docs-update-pr
+
+on:
+  workflow_run:
+    workflows:
+      - docs-build
+    types:
+      - completed
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: merge-docs-update-pr
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    name: merge-docs-update-pr
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'docs/update'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find docs/update pull request
+        id: pr
+        run: |
+          pr_url=""
+
+          for attempt in {1..12}; do
+            pr_url="$(gh pr list \
+              --base master \
+              --head docs/update \
+              --state open \
+              --json url \
+              --jq '.[0].url // ""')"
+
+            if [ -n "$pr_url" ]; then
+              break
+            fi
+
+            sleep 5
+          done
+
+          if [ -z "$pr_url" ]; then
+            echo "No open docs/update pull request found."
+            echo "has_pr=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_pr=true" >> "$GITHUB_OUTPUT"
+            echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Wait for required checks
+        if: steps.pr.outputs.has_pr == 'true'
+        run: gh pr checks "$PR_URL" --required --watch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ steps.pr.outputs.pr_url }}
+
+      - name: Merge docs/update pull request
+        if: steps.pr.outputs.has_pr == 'true'
+        run: gh pr merge "$PR_URL" --merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ steps.pr.outputs.pr_url }}
