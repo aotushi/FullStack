@@ -3,7 +3,7 @@
 }
 
 @media (min-width: 960px) {
-  .VPDoc .content {
+  .VPDoc .container > .content {
     padding-right: 0 !important;
     padding-left: 0 !important;
   }

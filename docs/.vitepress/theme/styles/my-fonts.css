@@ -1,0 +1,4 @@
+/* styles/my-fonts.css —— 左侧侧边栏字号 14px → 16px */
+#VPSidebarNav .text {
+  font-size: 16px;
+}

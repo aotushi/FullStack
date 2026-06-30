@@ -12,6 +12,7 @@ const legacyLabsRoot = path.join(docsRoot, "labs");
 const apiPort = Number(process.env.LABS_PORT || 4180);
 const previewBasePort = Number(process.env.LABS_PREVIEW_PORT || 5190);
 const runningLabs = new Map();
+const reservedPorts = new Set();
 
 function sendJson(res, status, payload) {
   const body = JSON.stringify(payload, null, 2);
@@ -150,7 +151,12 @@ function isPortAvailable(port) {
 
 async function findAvailablePort(startPort) {
   for (let port = startPort; port < startPort + 50; port += 1) {
+    if (reservedPorts.has(port)) continue;
+    // 同步预留:后续 await 期间其它并发 runLab 会跳过该端口,避免拿到同一个
+    reservedPorts.add(port);
     if (await isPortAvailable(port)) return port;
+    // 端口被外部进程占用,释放预留后继续探测下一个
+    reservedPorts.delete(port);
   }
   throw new Error("No available preview port found.");
 }
@@ -216,6 +222,7 @@ async function runLab(labId) {
   });
   child.on("exit", (code) => {
     state.exitCode = code;
+    reservedPorts.delete(port);
   });
 
   runningLabs.set(labId, state);
@@ -226,6 +233,7 @@ function stopLab(labId) {
   const current = runningLabs.get(labId);
   if (!current) return false;
   current.process.kill();
+  reservedPorts.delete(current.port);
   runningLabs.delete(labId);
   return true;
 }

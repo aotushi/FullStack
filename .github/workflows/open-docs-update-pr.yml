@@ -54,7 +54,6 @@ jobs:
               --body "Automated pull request for ordinary documentation updates from docs/update.")"
           fi
 
-          gh pr edit "$pr_url" --add-label automerge
-          gh pr merge "$pr_url" --auto --merge
+          echo "Pull request is ready for docs-build and merge workflow: $pr_url"
         env:
           GH_TOKEN: ${{ github.token }}
