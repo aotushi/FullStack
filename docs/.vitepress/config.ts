@@ -140,6 +140,9 @@ export default defineConfig({
   cleanUrls: true,
   ignoreDeadLinks: true,
   srcExclude: ["**/legacy/**"],
+  markdown: {
+    math: true,
+  },
   vite: {
     server: {
       proxy: {

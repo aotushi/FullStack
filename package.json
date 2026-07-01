@@ -20,6 +20,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260627.1",
     "@types/node": "^26.0.1",
+    "markdown-it-mathjax3": "^4.3.2",
     "vite-plus": "^0.2.1",
     "vitepress": "^1.6.4",
     "wrangler": "^4.105.0"
@@ -37,6 +38,7 @@
     "@vitejs/plugin-vue": "^6.0.7",
     "@vue/compiler-sfc": "^3.5.39",
     "codemirror": "^6.0.2",
+    "reka-ui": "^2.10.1",
     "vite": "^5.4.21",
     "vue": "^3.5.39"
   }
