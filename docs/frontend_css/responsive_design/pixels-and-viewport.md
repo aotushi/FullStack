@@ -107,12 +107,69 @@ CSS 像素是在 CSS 中以 `px` 为单位声明的长度。CSS 像素不是固�
 
 ![DPR=1 与 DPR=2 像素映射对比](./assets/device-pixel-ratio.svg)
 
-在 JavaScript 中可以通过以下方式查看屏幕逻辑宽高：
+Web 没有一个单独叫“设备独立像素”的固定 API。实际开发中要先判断你要取的是哪一种“逻辑尺寸”：
+
+| 想获取的值                  | API                                                     | 说明                                                                     |
+| --------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------ |
+| 屏幕自身的逻辑宽高          | `window.screen.width` / `window.screen.height`          | 返回屏幕宽高，单位是 CSS 像素。通常可理解为设备屏幕的逻辑尺寸。          |
+| 当前页面用于 CSS 布局的宽高 | `document.documentElement.clientWidth` / `clientHeight` | 返回布局视口尺寸。移动端设置 `width=device-width` 后通常等于屏幕逻辑宽。 |
+| 当前用户实际看到的区域      | `window.visualViewport.width` / `height`                | 返回视觉视口尺寸。移动端双指缩放时它会变化。                             |
+| CSS 像素与物理像素的折算比  | `window.devicePixelRatio`                               | 返回 DPR。                                                               |
+
+因此，如果问题是“这台设备暴露给 Web 的屏幕逻辑宽高是多少”，可以看：
 
 ```js
 window.screen.width;
 window.screen.height;
 ```
+
+如果问题是“当前页面实际用多少 CSS 像素参与布局”，更应该看：
+
+```js
+document.documentElement.clientWidth;
+document.documentElement.clientHeight;
+```
+
+这里容易混淆的一点是：**DPR 本身不能单独推出设备独立像素**。DPR 只是“物理像素 / 设备独立像素”的比率，必须再知道物理像素，才能反推设备独立像素：
+
+```txt
+设备独立像素 = 物理像素 / DPR
+```
+
+所以 `1170 / 3 = 390` 这个推导的前提是：我们已经知道设备物理宽度是 `1170`，DPR 是 `3`。如果只知道 DPR 是 `3`，并不能推出屏幕逻辑宽度是多少。
+
+Web 里物理像素宽高没有稳定、可靠的 API。可以用 `screen.width * devicePixelRatio` 做近似估算，但它会受到浏览器缩放、系统显示缩放、设备映射策略等因素影响，不能当作硬件真实分辨率的绝对来源。
+
+<ConceptNote
+  label="为什么不能只用 DPR 推出设备独立像素？"
+  title="DPR 只是比率，不是尺寸"
+  description="DPR 描述两个像素体系之间的折算关系，但它本身不包含屏幕宽高。"
+  :sections="[
+    {
+      title: '直观理解',
+      body: 'DPR 像比例尺。比例尺只能告诉你 1 个 CSS 像素大约对应几个物理像素，但不能告诉你整张屏幕有多宽。',
+    },
+    {
+      title: '需要两个条件',
+      items: ['已知物理像素和 DPR，可以反推设备独立像素。', '只知道 DPR，缺少物理像素这个总量，无法推出逻辑宽度。'],
+      code: '设备独立像素 = 物理像素 / DPR',
+    },
+    {
+      title: 'Web 中的实际情况',
+      body: '浏览器通常直接暴露 screen.width、clientWidth 这类逻辑尺寸；物理像素宽高只能近似估算，不能当作稳定硬件 API。',
+      links: [
+        {
+          label: 'MDN: devicePixelRatio',
+          href: 'https://developer.mozilla.org/en-US/docs/Web/API/Window/devicePixelRatio',
+        },
+        {
+          label: 'MDN: screen.width',
+          href: 'https://developer.mozilla.org/en-US/docs/Web/API/Screen/width',
+        },
+      ],
+    },
+  ]"
+/>
 
 ## DPR 是什么？
 
@@ -128,7 +185,7 @@ DPR = 设备像素 / 设备独立像素
 理想视口宽度 = 设备物理分辨率 / DPR
 ```
 
-例如某屏 `1170` 物理像素、DPR 为 `3`，理想视口宽度就是 `1170 / 3 = 390` CSS px——这正是 `screen.width` 和 `device-width` 的值，中间没有第二个比率。
+例如某屏 `1170` 物理像素、DPR 为 `3`，理想视口宽度就是 `1170 / 3 = 390` CSS px。移动端未缩放且浏览器按设备默认逻辑宽度暴露时，这通常就是 `screen.width` 和 `device-width` 的值，中间没有第二个比率。
 
 DPR 由**系统规定、可后期更改**：系统给设备设定的逻辑分辨率（“显示缩放 / 显示尺寸”等设置）一变，DPR 就跟着变，并非写死在硬件上。也正因如此，移动端用 `width=device-width` 把**布局视口对齐到理想视口**（见下文 [`meta viewport`](#meta-viewport)），CSS 排版、媒体查询和 `vw` 拿到的才是设备应有的宽度。完整推导见 [meta viewport 有什么作用？](https://questions.9shi.cc/html/viewport/meta-viewport)。
 
@@ -227,9 +284,12 @@ document.documentElement.clientHeight;
 获取视觉视口：
 
 ```js
-window.innerWidth;
-window.innerHeight;
+window.visualViewport?.width;
+window.visualViewport?.height;
+window.visualViewport?.scale;
 ```
+
+`window.innerWidth` / `window.innerHeight` 返回的是窗口内部的布局视口尺寸，并包含滚动条；它们不等同于 Visual Viewport API。需要观察移动端双指缩放后的可见区域时，应优先使用 `window.visualViewport`。
 
 类比：
 
@@ -297,11 +357,14 @@ window.screen.height;
 常用窗口尺寸：
 
 - `document.documentElement.clientHeight`：布局视口高度，包括内边距，不包括垂直滚动条、边框和外边距。
+- `document.documentElement.clientWidth`：布局视口宽度，不包括垂直滚动条。
 - `document.documentElement.offsetHeight`：包括内边距、滚动条、边框。
 - `document.documentElement.scrollHeight`：内容完整展示所需高度。
-- `window.innerHeight`：视觉视口高度，包括滚动条。
+- `window.innerWidth` / `window.innerHeight`：窗口内部的布局视口尺寸，包括滚动条。
+- `window.visualViewport.width` / `window.visualViewport.height`：视觉视口尺寸。
+- `window.visualViewport.scale`：视觉视口缩放比例。
 - `window.outerHeight`：浏览器窗口外部高度，包括窗口边框等。
-- `window.screen.height`：屏幕 CSS 像素高度，通常可理解为理想视口高度。
+- `window.screen.width` / `window.screen.height`：屏幕 CSS 像素宽高，通常可理解为屏幕逻辑尺寸。
 - `window.screen.availHeight`：浏览器窗口可用高度。
 
 `window.innerWidth` 和 `document.documentElement.clientWidth` 的区别：

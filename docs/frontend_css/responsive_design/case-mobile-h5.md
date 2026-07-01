@@ -19,7 +19,7 @@ import SeckillStackblitz from "./components/SeckillStackblitz.vue";
 
 一句话抓住区别：**`rem` / `vw` 是「等比缩放」**（整体还原设计稿比例），**响应式是「布局重排」**（按宽度换布局）。现代项目常以响应式打底，再对需要精确还原的区块叠加 `vw`。
 
-## 选型
+## 如何选型
 
 移动端不是只有一种适配方式，先按页面性质选：
 
@@ -38,11 +38,11 @@ import SeckillStackblitz from "./components/SeckillStackblitz.vue";
 
 ## `rem` 适配：两种流派与手淘演进
 
-#### 背景：为什么用 `rem` 而不是百分比
+### 背景：为什么用 `rem` 而不是百分比
 
 `rem` 始终相对根元素 `<html>` 的 `font-size` 计算，参考物唯一；而百分比里 `width`、`padding`、`margin` 各自的参考物不同，混用容易算错，不利于整页等比。
 
-#### 原理
+### 原理
 
 写样式时统一用 `rem`，再用 JS 按设备宽度动态设置根字号，让 `1rem` 始终等于“设计稿的某等份”，于是任意宽度的设备都按同一比例还原设计稿。系数怎么取，分两个流派。
 
@@ -52,12 +52,49 @@ import SeckillStackblitz from "./components/SeckillStackblitz.vue";
 - **高度可按设计稿固定**，设计稿多大就多大。
 - 固定值统一用 `rem`：先定好 `px` 与 `rem` 的换算基准，再把量到的 `px` 折成 `rem`。
 - 对像素敏感的地方（`1px` 描边、多元素求和对齐）直接用 `px`，不要无脑全 `rem`。
+- <ConceptNote
+  label="dip采用`clientWidth`,而不是`innerWidth`"
+  title="为什么是 clientWidth 而不是 innerWidth"
+  description="两个都是 CSS 像素，rem 方案偏爱 document.documentElement.clientWidth，原因是它不含滚动条宽度"
+  :sections="[
+  {
+  title: '两项比较',
+  items: ['window.innerWidth = 视口宽 + 包含竖直滚动条占的宽度', 'document.documentElement.clientWidth = 视口宽 - 减去滚动条宽度（即真正可用的内容宽度）']
+  },
+  {
+  body: `在移动端两者通常一样（移动端滚动条是悬浮的、不占位），但在桌面端或某些带占位滚动条的环境，用 innerWidth 会把滚动条那几像素也算进 font-size 基准，导致布局有极小偏差甚至触发横向滚动。用 clientWidth 以'实际内容可用宽'为准，更稳。`
+  },
+  {
+  title: 'Web 中的实际情况',
+  body: '浏览器通常直接暴露 screen.width、clientWidth 这类逻辑尺寸；物理像素宽高只能近似估算，不能当作稳定硬件 API。',
+  links: [
+  {
+  label: 'MDN: devicePixelRatio',
+  href: 'https://developer.mozilla.org/en-US/docs/Web/API/Window/devicePixelRatio',
+  },
+  {
+  label: 'MDN: screen.width',
+  href: 'https://developer.mozilla.org/en-US/docs/Web/API/Screen/width',
+  },
+  ],
+  },
+  ]"
+  />
 
-#### 方案一：设计值 ÷ 100（淘宝、百度）
+### 方案一：设计值 ÷ 100（淘宝、百度）
 
 ![rem 适配方案一](./assets/rem-scheme-div100.png)
 
-**做法**：① 设完美视口；② JS 设根字号 = `设备横向独立像素 × 100 / 设计稿宽`；③ 样式里以 `rem` 为单位，值 = `设计值 / 100`；④ 监听 `resize` 实时适配。
+**做法**：
+
+```
+① 设完美视口；
+② JS 设根字号 = `设备横向独立像素 × 100 / 设计稿宽`；
+③ 样式里以 `rem` 为单位，值 = `设计值 / 100`；
+④ 监听 `resize` 实时适配。
+```
+
+这里的 <InlineTip label="100" text="100 不是数学必需项，而是人为约定的开发刻度：让设计稿 100px 对应 1rem，176px 写成 1.76rem。这样数值更接近常规 CSS 书写习惯，比直接写 176rem 更容易阅读和维护。" /> 是为了把设计稿尺寸压到更容易书写的 `rem` 数值。
 
 ```js
 function adapter() {
@@ -68,9 +105,21 @@ function adapter() {
 
 adapter();
 window.addEventListener("resize", adapter);
+
+// 传统方式
+window.addEventListener("resize", () => {
+  console.log(window.innerWidth, window.devicePixelRatio);
+});
+
+// 更精确的视觉视口（推荐移动端，能捕捉缩放和软键盘）
+window.visualViewport?.addEventListener("resize", () => {
+  console.log(window.visualViewport.width);
+});
 ```
 
-**为什么挪一下小数点就行**：同一元素在设计稿和真机上占的**比例相等**，设元素设计值为 `D`、真机算出的 CSS 宽为 `x`、设备独立像素宽为 `dip`，
+**方案解释**：
+
+同一元素在设计稿和真机上占的**比例相等**，设元素设计值为 `D`、真机算出的 CSS 宽为 `x`、设备独立像素宽为 `dip`，
 
 ```txt
 D / 设计稿宽 = x / dip            （同比例）
@@ -78,6 +127,24 @@ D / 设计稿宽 = x / dip            （同比例）
 令 1rem = (dip × 100) / 设计稿宽 = 根字号
 ⟹ x = (D / 100) × 1rem
 ```
+
+$$
+\frac{D}{\text{设计稿宽}} = \frac{x}{dip}
+$$
+
+两边同时乘以 100：
+
+$$
+\frac{dip \times 100}{\text{设计稿宽}} = \frac{x \times 100}{D}
+$$
+
+规定 $1\text{rem} = \frac{dip \times 100}{\text{设计稿宽}} = \text{根字号}$
+
+所以：
+
+$$
+x = \frac{D}{100} \times 1\text{rem}
+$$
 
 所以样式里直接写 `设计值 / 100` 的 `rem`。用 Less 把除法藏进变量更直观：
 
@@ -95,11 +162,24 @@ D / 设计稿宽 = x / dip            （同比例）
 }
 ```
 
-#### 方案二：设计值 ÷ (设计稿宽 / 10)（搜狐、唯品会）
+#### 方案一实例
+
+### 方案二：设计值 ÷ (设计稿宽 / 10)（搜狐、唯品会）
 
 ![rem 适配方案二](./assets/rem-scheme-div10.png)
 
-**做法**：① 设完美视口；② JS 设根字号 = `设备横向独立像素 / 10`；③ 样式里值 = `设计值 / (设计稿宽 / 10)`；④ 监听 `resize`。把屏宽分成 10 份，750 稿则 `1rem = 75px`：
+**做法**：
+
+```
+① 设完美视口；
+② JS 设根字号 = `设备横向独立像素 / 10`；
+③ 样式里值 = `设计值 / (设计稿宽 / 10)`；
+④ 监听 `resize`。
+```
+
+这里的 <InlineTip label="10" text="10 同样是人为约定的开发刻度：把当前设备宽度分成 10 份，750 设计稿下 1rem 正好等于 75px。它延续了 flexible.js 的工程习惯，也方便日后和 vw 的 10 等份思路对应。" /> 是为了把屏幕拆成固定等份，形成统一的换算基准。
+
+把屏宽分成 10 份，750 稿则 `1rem = 75px`：
 
 ```js
 function adapter() {
@@ -114,7 +194,72 @@ window.addEventListener("resize", adapter);
 视觉稿 176 * 176 的元素 → 176 / 75 = 2.346667rem
 ```
 
-#### 手淘 `flexible.js` 与向 VW 演进
+#### 方案解释
+
+方案二的核心是：**不再让 `1rem` 依赖设计稿宽，而是固定把当前设备宽度分成 10 份**。
+
+设元素设计值为 `D`、设计稿宽为 `W`、设备独立像素宽为 `dip`、真机算出的 CSS 宽为 `x`：
+
+```txt
+D / W = x / dip                    （同比例）
+根字号 = 1rem = dip / 10
+⟹ dip = 10rem
+⟹ x = (D / W) × dip
+⟹ x = (D / W) × 10rem
+⟹ x = D / (W / 10) × 1rem
+```
+
+所以样式里写：
+
+```txt
+rem 值 = 设计值 / (设计稿宽 / 10)
+```
+
+如果设计稿宽是 `750`，那么：
+
+```txt
+设计稿宽 / 10 = 750 / 10 = 75
+176px 设计值 = 176 / 75 rem = 2.346667rem
+```
+
+对应公式是：
+
+$$
+\frac{D}{W} = \frac{x}{dip}
+$$
+
+规定：
+
+$$
+1\text{rem} = \frac{dip}{10}
+$$
+
+所以：
+
+$$
+x = \frac{D}{W / 10} \times 1\text{rem}
+$$
+
+用 Less 把 `设计稿宽 / 10` 抽成变量：
+
+```less
+@designWidth: 750;
+@remBase: (@designWidth / 10);
+
+.box {
+  width: (176 / @remBase) * 1rem;
+  height: (176 / @remBase) * 1rem;
+}
+```
+
+方案一和方案二的本质一样，都是保持元素在设计稿和设备上的比例一致；区别只是：
+
+| 方案   | 根字号                 | 样式换算                       |
+| ------ | ---------------------- | ------------------------------ |
+| 方案一 | `dip × 100 / 设计稿宽` | `设计值 / 100 rem`             |
+| 方案二 | `dip / 10`             | `设计值 / (设计稿宽 / 10) rem` |
+
+#### 实例-手淘 `flexible.js` 与向 VW 演进
 
 **手淘 `flexible.js`** 是“分 10 份”流派的工业级实现。它把 `750` 稿分成 **100 等份**，每份记作 `1a`（`1a = 7.5px`），约定 `1rem = 10a = 75px`——分这么细是为了日后能平滑地从 `rem` 过渡到 `vw`。除了按屏宽设根字号，它还按 `dpr` 设 `body` 字号、并探测 `0.5px` 支持：
 
