@@ -1,0 +1,7 @@
+{
+  "id": "vue-component-wrapper-native-input",
+  "title": "版本 2.2：原生 input 显式边界封装",
+  "description": "用普通 input 去掉 UI 库干扰，只观察组件封装的边界。",
+  "mainFile": "src/App.vue",
+  "activeFile": "src/MyInput.vue"
+}

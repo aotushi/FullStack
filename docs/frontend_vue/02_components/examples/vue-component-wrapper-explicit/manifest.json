@@ -1,0 +1,11 @@
+{
+  "id": "vue-component-wrapper-explicit",
+  "title": "稳定版：显式边界封装",
+  "description": "只暴露项目需要的 Element Plus 输入框能力。",
+  "defaultFile": "src/components/MyInput.vue",
+  "runnable": true,
+  "installable": true,
+  "scripts": {
+    "dev": "npm run dev"
+  }
+}

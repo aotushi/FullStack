@@ -57,12 +57,9 @@ function getLabDir(labId) {
   }
 
   const candidates = [path.resolve(legacyLabsRoot, labId)];
-  for (const entry of readdirSync(docsRoot, { withFileTypes: true })) {
-    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
-    candidates.push(path.resolve(docsRoot, entry.name, "examples", labId));
-  }
+  collectTopicExampleCandidates(docsRoot, labId, candidates);
 
-  const labDir = candidates.find((candidate) => existsSync(candidate));
+  const labDir = candidates.find((candidate) => existsSync(path.join(candidate, "manifest.json")));
   if (!labDir) {
     throw new Error(`Lab not found: ${labId}`);
   }
@@ -71,6 +68,26 @@ function getLabDir(labId) {
     throw new Error("Lab path escapes docs directory.");
   }
   return labDir;
+}
+
+function collectTopicExampleCandidates(baseDir, labId, candidates, depth = 0) {
+  if (depth > 2) return;
+
+  for (const entry of readdirSync(baseDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (
+      entry.name.startsWith(".") ||
+      entry.name === "legacy" ||
+      entry.name === "examples" ||
+      entry.name === "node_modules" ||
+      entry.name === "dist"
+    )
+      continue;
+
+    const dir = path.resolve(baseDir, entry.name);
+    candidates.push(path.resolve(dir, "examples", labId));
+    collectTopicExampleCandidates(dir, labId, candidates, depth + 1);
+  }
 }
 
 function getFilesDir(labId) {
