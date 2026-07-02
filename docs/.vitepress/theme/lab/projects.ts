@@ -20,7 +20,12 @@ const manifestModules = import.meta.glob("/labs/*/manifest.json", {
   import: "default",
 }) as Record<string, LabManifest>;
 
-const topicManifestModules = import.meta.glob("/*/examples/*/manifest.json", {
+const topicRootManifestModules = import.meta.glob("/*/examples/*/manifest.json", {
+  eager: true,
+  import: "default",
+}) as Record<string, LabManifest>;
+
+const topicSectionManifestModules = import.meta.glob("/*/*/examples/*/manifest.json", {
   eager: true,
   import: "default",
 }) as Record<string, LabManifest>;
@@ -31,7 +36,13 @@ const fileModules = import.meta.glob("/labs/*/files/**/*", {
   query: "?raw",
 }) as Record<string, string>;
 
-const topicFileModules = import.meta.glob("/*/examples/*/files/**/*", {
+const topicRootFileModules = import.meta.glob("/*/examples/*/files/**/*", {
+  eager: true,
+  import: "default",
+  query: "?raw",
+}) as Record<string, string>;
+
+const topicSectionFileModules = import.meta.glob("/*/*/examples/*/files/**/*", {
   eager: true,
   import: "default",
   query: "?raw",
@@ -57,8 +68,12 @@ function shouldShowFile(filePath: string) {
 }
 
 export function loadStaticLab(projectId: string): LabProject | null {
-  const manifests = { ...manifestModules, ...topicManifestModules };
-  const files = { ...fileModules, ...topicFileModules };
+  const manifests = {
+    ...manifestModules,
+    ...topicRootManifestModules,
+    ...topicSectionManifestModules,
+  };
+  const files = { ...fileModules, ...topicRootFileModules, ...topicSectionFileModules };
   const manifestEntry = Object.entries(manifests).find(([, manifest]) => {
     return manifest.id === projectId;
   });

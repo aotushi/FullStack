@@ -85,7 +85,23 @@ const frontend = [
     collapsed: true,
     items: [
       { text: "Overview", link: "/frontend_vue/" },
-      { text: "组件封装", link: "/frontend_vue/component-wrapper" },
+      { text: "01 Core Model", link: "/frontend_vue/01_core_model/" },
+      {
+        text: "02 Components",
+        collapsed: true,
+        items: [
+          { text: "Overview", link: "/frontend_vue/02_components/" },
+          { text: "组件封装", link: "/frontend_vue/02_components/component-wrapper" },
+        ],
+      },
+      { text: "03 Client State", link: "/frontend_vue/03_client_state/" },
+      { text: "04 Server State", link: "/frontend_vue/04_server_state/" },
+      { text: "05 Routing", link: "/frontend_vue/05_routing/" },
+      { text: "06 Auth Permission", link: "/frontend_vue/06_auth_permission/" },
+      { text: "07 UI System", link: "/frontend_vue/07_ui_system/" },
+      { text: "08 Engineering", link: "/frontend_vue/08_engineering/" },
+      { text: "09 Quality", link: "/frontend_vue/09_quality/" },
+      { text: "10 Maintenance", link: "/frontend_vue/10_maintenance/" },
     ],
   },
   { text: "React", link: "/frontend_react/" },
@@ -144,6 +160,9 @@ export default defineConfig({
     math: true,
   },
   vite: {
+    optimizeDeps: {
+      exclude: ["@vue/repl"],
+    },
     server: {
       proxy: {
         "/api": {

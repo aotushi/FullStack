@@ -1,16 +1,40 @@
-# frontend_vue
+# Vue
 
-Scope: Vue, Vue Router, Pinia/Vuex, component patterns, Composition API, project structure, and Vue ecosystem practice.
+Vue 笔记不按官网 API 重新抄一遍，而是按一个项目从立项、开发、交付到维护的生命周期整理。
 
-Subtopics:
+核心原则：
 
-- Vue basics
-- Composition API
-- [组件封装](./component-wrapper.md)
-- routing
-- state management
-- project practice
+- 官网负责解释 API 是什么。
+- 这里负责记录项目中如何组织、如何取舍、如何封装、如何维护。
+- 基础概念只保留二次理解和容易踩坑的部分。
 
-Legacy content:
+## 模块结构
 
-- `legacy/` stores moved old notes before rewriting.
+| 模块                                        | 内容边界                                              |
+| ------------------------------------------- | ----------------------------------------------------- |
+| [01 Core Model](./01_core_model/)           | 响应式、Composition API、生命周期等核心机制的二次理解 |
+| [02 Components](./02_components/)           | 组件封装、组件设计模式、通用组件库、二次封装案例      |
+| [03 Client State](./03_client_state/)       | 组件通信、Pinia、本地状态、跨页面状态                 |
+| [04 Server State](./04_server_state/)       | 请求封装、缓存、错误重试、服务端数据管理              |
+| [05 Routing](./05_routing/)                 | 路由结构、页面组织、导航守卫                          |
+| [06 Auth Permission](./06_auth_permission/) | 鉴权、动态菜单、权限指令、登录态恢复                  |
+| [07 UI System](./07_ui_system/)             | UI 库集成、主题、表单、弹窗、i18n                     |
+| [08 Engineering](./08_engineering/)         | 构建、部署、环境变量、CI、代码生成                    |
+| [09 Quality](./09_quality/)                 | 测试、调试、性能、可观测性                            |
+| [10 Maintenance](./10_maintenance/)         | 升级、重构、依赖治理、技术债                          |
+
+## 当前重点
+
+- [组件封装](./02_components/component-wrapper.md)
+
+## 内容写法
+
+每篇笔记优先回答三个问题：
+
+1. 这个问题在项目中什么时候出现？
+2. 常见做法为什么不够好？
+3. 当前推荐方案是什么，以及它的边界是什么？
+
+## Legacy
+
+`legacy/` 保存旧笔记，只有经过重新理解和整理后，才移动到正式模块中。
