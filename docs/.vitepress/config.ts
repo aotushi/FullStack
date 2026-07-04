@@ -18,12 +18,20 @@ const web = [
 ];
 
 const frontend = [
-  { text: "HTML", link: "/frontend_html/" },
+  {
+    text: "HTML",
+    collapsed: true,
+    items: [
+      { text: "Overview", link: "/frontend_html/" },
+      { text: "资料合集", link: "/frontend_html/resources" },
+    ],
+  },
   {
     text: "CSS",
     collapsed: true,
     items: [
       { text: "Overview", link: "/frontend_css/" },
+      { text: "资料合集", link: "/frontend_css/resources" },
       {
         text: "Responsive Design",
         collapsed: false,
@@ -63,7 +71,14 @@ const frontend = [
       },
     ],
   },
-  { text: "JavaScript", link: "/frontend_javascript/" },
+  {
+    text: "JavaScript",
+    collapsed: true,
+    items: [
+      { text: "Overview", link: "/frontend_javascript/" },
+      { text: "资料合集", link: "/frontend_javascript/resources" },
+    ],
+  },
   { text: "TypeScript", link: "/frontend_typescript/" },
   { text: "Browser", link: "/frontend_browser/" },
   {

@@ -2,6 +2,10 @@
 
 CSS 主题覆盖语言基础、选择器与层叠、盒模型、布局、响应式设计、排版颜色、视觉效果、动画变换、现代 CSS 和可维护架构。
 
+## 资料合集
+
+- [CSS 资料合集](./resources) - 官方文档、专题网站、文章、工具、示例库、字体资源和后续补充的多媒体资料入口。
+
 ## Subtopics
 
 - [fundamentals](./fundamentals/) - syntax, values, units, how CSS is parsed and applied.

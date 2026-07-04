@@ -2,6 +2,10 @@
 
 Scope: CSS language, layout, responsive design, animation, cascade, and maintainable styling.
 
+Resource page:
+
+- [CSS 资料合集](./resources.md) - official docs, websites, articles, tools, examples, fonts, and later multimedia resources.
+
 Subtopics:
 
 - [fundamentals](./fundamentals/) - syntax, values, units, how CSS is parsed and applied.
