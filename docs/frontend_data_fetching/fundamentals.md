@@ -96,12 +96,16 @@ const data = await response.json();
 
 ## Browser Boundaries
 
+This page only records the application-facing model. `frontend_browser` owns the platform mechanics of CORS, preflight requests, and the browser `Request`, `Response`, and `Headers` APIs.
+
 - same-origin policy
-- CORS
+- CORS as an application constraint
 - cookies and credentials
 - which headers can be read or written
 
 ## Request Lifecycle Control
+
+This page owns the primitive vocabulary. Project-level patterns such as cancel-on-unmount and stale-response handling belong in [Design guidelines](./design-guidelines.md).
 
 - cancellation
 - timeout

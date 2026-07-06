@@ -1,4 +1,4 @@
-# Design Guidelines
+# Design guidelines
 
 This page records project-level rules for using requests in frontend applications.
 
@@ -32,10 +32,12 @@ This page records project-level rules for using requests in frontend application
 
 - request timeout
 - cancellation
+- cancel-on-unmount
 - retry policy
 - exponential backoff
 - idempotency and side effects
 - preventing stale responses from updating the UI
+- request race handling
 
 ## UI State
 
@@ -62,11 +64,13 @@ This page records project-level rules for using requests in frontend application
 - request deduplication
 - optimistic updates
 
-## Framework Boundaries
+## Testing And Mocking
 
-- shared request rules belong in this topic
-- Vue composables and Nuxt-specific usage belong in `frontend_vue`
-- React hooks and React-specific usage belong in `frontend_react`
+- MSW for request-level mocks
+- adapter-level mocks for request clients
+- fixture data shape
+- testing loading, error, empty, success, and retry states
+- keeping framework test helpers in their framework topics
 
 Related:
 
