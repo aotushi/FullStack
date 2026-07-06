@@ -89,7 +89,7 @@ const frontend = [
       { text: "Fundamentals", link: "/frontend_data_fetching/fundamentals" },
       { text: "Clients", link: "/frontend_data_fetching/clients" },
       {
-        text: "Design Guidelines",
+        text: "Design guidelines",
         link: "/frontend_data_fetching/design-guidelines",
       },
     ],

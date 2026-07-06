@@ -32,6 +32,8 @@ This page records the tools used to send requests from frontend applications.
 
 ## Server-State Tools
 
+This topic owns the tool-agnostic role of server-state libraries: cache identity, staleness, invalidation, deduplication, and when a request library is not enough. Framework-specific APIs belong in their framework topics.
+
 - TanStack Query
 - SWR-like tools
 - request library vs server-state library
