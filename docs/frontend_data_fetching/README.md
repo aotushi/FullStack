@@ -13,7 +13,7 @@ Ownership rules:
 Subtopics:
 
 - [Fundamentals](./fundamentals.md) - request and response model, request data, response data, browser boundaries, lifecycle control, and debugging.
-- [Clients](./clients.md) - Fetch API, XMLHttpRequest, fetch-based wrappers, axios, framework clients, and the library-neutral role of server-state tools.
+- [Clients](./clients.md) - Fetch API, XMLHttpRequest, fetch-based wrappers, axios usage examples, framework clients, and the library-neutral role of server-state tools.
 - [Design guidelines](./design-guidelines.md) - API client structure, authentication, error handling, retry, cancellation, upload/download, pagination, cache, and request mocking.
 
 Related topics:

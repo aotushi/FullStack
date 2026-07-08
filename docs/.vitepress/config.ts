@@ -87,7 +87,14 @@ const frontend = [
     items: [
       { text: "Overview", link: "/frontend_data_fetching/" },
       { text: "Fundamentals", link: "/frontend_data_fetching/fundamentals" },
-      { text: "Clients", link: "/frontend_data_fetching/clients" },
+      {
+        text: "Clients",
+        collapsed: false,
+        items: [
+          { text: "Overview", link: "/frontend_data_fetching/clients" },
+          { text: "Axios", link: "/frontend_data_fetching/clients/axios" },
+        ],
+      },
       {
         text: "Design guidelines",
         link: "/frontend_data_fetching/design-guidelines",
