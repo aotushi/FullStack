@@ -78,9 +78,11 @@ class HttpClient {
 
   private setupInterceptors() {
     this.instance.interceptors.request.use((config: InternalRequestConfig) => {
+      // config 是本次请求的完整配置对象；headers 只是 config 里的请求头部分。
       if (!config.skipAuth) {
         const token = localStorage.getItem("access_token");
         if (token) {
+          // 修改请求头时，只改 config.headers，而不是把 config 当成 headers。
           config.headers.Authorization = `Bearer ${token}`;
         }
       }
@@ -149,97 +151,95 @@ import axios from "axios";
  * }} RequestConfig
  */
 
-class HttpClient {
-  constructor() {
-    this.instance = axios.create({
-      // Vite 会按模式读取 .env.development / .env.production。
-      // 示例：VITE_API_BASE_URL=/api 或 https://api.example.com。
-      baseURL: import.meta.env.VITE_API_BASE_URL,
-      timeout: 10000,
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
+function createHttpClient() {
+  const instance = axios.create({
+    // Vite 会按模式读取 .env.development / .env.production。
+    // 示例：VITE_API_BASE_URL=/api 或 https://api.example.com。
+    baseURL: import.meta.env.VITE_API_BASE_URL,
+    timeout: 10000,
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
 
-    this.setupInterceptors();
-  }
+  instance.interceptors.request.use((config) => {
+    // config 是本次请求的完整配置对象；headers 只是 config 里的请求头部分。
+    if (!config.skipAuth) {
+      const token = localStorage.getItem("access_token");
+      if (token) {
+        // 修改请求头时，只改 config.headers，而不是把 config 当成 headers。
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+    }
 
-  setupInterceptors() {
-    this.instance.interceptors.request.use((config) => {
-      if (!config.skipAuth) {
-        const token = localStorage.getItem("access_token");
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
-        }
+    // 公共参数也可以在这里统一追加，例如 tenantId、locale、traceId。
+    return config;
+  });
+
+  instance.interceptors.response.use(
+    (response) => {
+      /** @type {ApiResponse<unknown>} */
+      const result = response.data;
+
+      if (result.code !== 0) {
+        // 基础错误提示放在这里；复杂错误归一化放到“拦截器进阶”。
+        return Promise.reject(new Error(result.message || "请求失败"));
       }
 
-      // 公共参数也可以在这里统一追加，例如 tenantId、locale、traceId。
-      return config;
-    });
+      // 数据剥壳：调用方直接拿到业务数据。
+      return result.data;
+    },
+    (error) => Promise.reject(error),
+  );
 
-    this.instance.interceptors.response.use(
-      (response) => {
-        /** @type {ApiResponse<unknown>} */
-        const result = response.data;
+  return {
+    /**
+     * @template T
+     * @param {string} url
+     * @param {RequestConfig} [config]
+     * @returns {Promise<T>}
+     */
+    get(url, config) {
+      return instance.get(url, config);
+    },
 
-        if (result.code !== 0) {
-          // 基础错误提示放在这里；复杂错误归一化放到“拦截器进阶”。
-          return Promise.reject(new Error(result.message || "请求失败"));
-        }
+    /**
+     * @template T
+     * @template D
+     * @param {string} url
+     * @param {D} [data]
+     * @param {RequestConfig} [config]
+     * @returns {Promise<T>}
+     */
+    post(url, data, config) {
+      return instance.post(url, data, config);
+    },
 
-        // 数据剥壳：调用方直接拿到业务数据。
-        return result.data;
-      },
-      (error) => Promise.reject(error),
-    );
-  }
+    /**
+     * @template T
+     * @template D
+     * @param {string} url
+     * @param {D} [data]
+     * @param {RequestConfig} [config]
+     * @returns {Promise<T>}
+     */
+    put(url, data, config) {
+      return instance.put(url, data, config);
+    },
 
-  /**
-   * @template T
-   * @param {string} url
-   * @param {RequestConfig} [config]
-   * @returns {Promise<T>}
-   */
-  get(url, config) {
-    return this.instance.get(url, config);
-  }
-
-  /**
-   * @template T
-   * @template D
-   * @param {string} url
-   * @param {D} [data]
-   * @param {RequestConfig} [config]
-   * @returns {Promise<T>}
-   */
-  post(url, data, config) {
-    return this.instance.post(url, data, config);
-  }
-
-  /**
-   * @template T
-   * @template D
-   * @param {string} url
-   * @param {D} [data]
-   * @param {RequestConfig} [config]
-   * @returns {Promise<T>}
-   */
-  put(url, data, config) {
-    return this.instance.put(url, data, config);
-  }
-
-  /**
-   * @template T
-   * @param {string} url
-   * @param {RequestConfig} [config]
-   * @returns {Promise<T>}
-   */
-  delete(url, config) {
-    return this.instance.delete(url, config);
-  }
+    /**
+     * @template T
+     * @param {string} url
+     * @param {RequestConfig} [config]
+     * @returns {Promise<T>}
+     */
+    delete(url, config) {
+      return instance.delete(url, config);
+    },
+  };
 }
 
-export const http = new HttpClient();
+export const http = createHttpClient();
 ```
 
 :::
