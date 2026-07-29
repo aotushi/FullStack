@@ -22,7 +22,12 @@ This page records the tools used to send requests from frontend applications.
 - request and response transform
 - upload and download progress
 - timeout and cancellation
-- [Axios](./clients/axios.md) - Axios usage notes, including axios 二次封装 as a concrete example.
+
+The Axios request-layer notes are built around a runnable, fully tested implementation kept in this repo at `docs/projects/axios-http`:
+
+- [Overview](./clients/axios.md) - scope, protocol stance, capability defaults, and the pre-adoption checklist.
+- [Learning path](./clients/axios/learning-path.md) - reading guide: the global request map, the eight-stage overview, and the three adoption tiers.
+- Stage pages, each ending with the source files it lands: [最小客户端](./clients/axios/minimal-client.md), [逻辑请求与错误](./clients/axios/request-and-errors.md), [生命周期能力](./clients/axios/lifecycle.md), [认证与刷新](./clients/axios/auth.md), [业务模块与端到端](./clients/axios/modules-and-e2e.md).
 
 ## Framework Clients
 

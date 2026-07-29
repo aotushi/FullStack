@@ -1,1026 +1,174 @@
-# Axios
+# Axios 请求层
 
-## axios 二次封装
+这是一套基于 Axios 的项目请求层封装。页面代码只调业务模块里的领域函数，剩下的事
+——类型化入口、逻辑请求生命周期、错误分类与展示、并发 401 单飞刷新、取消 /
+Loading / 重试、文件传输——由请求层内部分工完成。核心拆成两层：**通用 HTTP 核心**
+只依赖 HTTP 标准语义；**项目协议**（信封解包、错误文案、凭证读写）全部收进
+Adapter，换一个后端协议只动 `adapters/` 和装配入口。
 
-Axios 二次封装的目标不是把 Axios 再包一层，而是把项目里的请求约定集中起来：入口统一、返回结构统一、错误处理统一、登录态处理统一，并给业务代码保留清晰的类型。
+全部代码来自仓库内一套可运行、带测试的工程，各阶段页文末内嵌的源码在构建时从真实
+文件直读，和测试跑的是同一份。
 
-### 1. 前端请求流程图
+- 学习入口：[渐进式学习路径](./axios/learning-path.md)（导读 + 五个阶段分页）
+- 代码与设计基线：仓库内 `docs/projects/axios-http/`；某个决定为什么这样定、否决了
+  哪些替代方案，翻工程根目录的 `DESIGN.md`
 
-<img
-  class="axios-request-flow-image"
-  src="../assets/axios-request-flow.webp"
-  alt="前端请求流程图"
-  loading="lazy"
-/>
+## 分层与文件地图
 
-<style>
-.axios-request-flow-image {
-  display: block;
-  width: min(100%, 560px);
-  height: auto;
-  margin: 16px auto 24px;
-}
-</style>
+```text
+docs/projects/axios-http/            可运行工程：pnpm check = 类型检查 + 单测 + 浏览器测试
+├── DESIGN.md                        设计基线：全部决策与被否决的替代方案
+├── test/                            Vitest 单元与本地 HTTP 集成测试
+├── browser-tests/                   Playwright Chrome 测试
+└── src/api/
+    ├── http/                        通用核心——只依赖 HTTP 标准语义
+    │   ├── index.ts                 对外门面：创建并导出 http 的接入示例 + 类型出口
+    │   ├── client.ts                类型化入口 + execute() 逻辑请求生命周期 + 拦截器装配
+    │   ├── errors.ts                错误归一化：网络 / HTTP 状态 / 协议格式三类
+    │   ├── auth.ts                  并发 401 单飞刷新状态机：五组状态、代际与熔断
+    │   ├── request-control.ts       物理尝试计数：双层取消 + Loading 边界
+    │   ├── retry.ts                 安全读重试：总时间预算 + 退避抖动
+    │   ├── transfer.ts              文件传输：带凭证下载、读文件名、直链下载
+    │   └── adapters/                项目协议——换后端只动这里
+    │       ├── envelope.ts          信封解包 { code, message, data }
+    │       ├── error-presenter.ts   错误文案：错误分类到提示语的项目分支
+    │       └── auth.ts              凭证读写 + 调刷新接口
+    ├── session.ts                   会话状态（真实项目换成 Pinia/Zustand 切片）
+    └── modules/                     业务 API 模块：领域函数 + 领域错误（users.ts 示范）
+```
 
-### 2. 基础封装（最小可用版本）
+验证命令与测试覆盖清单见[业务模块与端到端](./axios/modules-and-e2e.md)「验证资料」。
 
-基础封装先解决最小闭环：创建实例、读取环境变量、带上公共请求信息、剥离响应数据、约定返回结构，并暴露常用请求方法。
+### 改什么动哪里
 
-- axios 实例（baseURL / timeout / headers）
-- 环境变量管理 baseURL（dev / prod）
-- 基础请求拦截器（携带 token、公共参数）
-- 基础响应拦截器（数据剥壳、基础错误提示）
-- 返回结构约定
-- 类型声明与泛型返回
-- request / get / delete / head / options / post / put / patch 基础方法
+新需求先对号入座，绝大多数变更只落在一个文件：
 
-::: code-group
+| 变更                               | 落点                                                                                              |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------- |
+| 新增业务接口                       | `modules/` 新文件，其余不动                                                                       |
+| 换信封字段、后端 200 + 业务码      | `adapters/envelope.ts`（下文三层适配）                                                            |
+| 改错误文案、接多语言               | `adapters/error-presenter.ts`                                                                     |
+| 换认证方案                         | `adapters/` 新认证 Adapter，在 `http/index.ts` 给工厂注入 `auth`（[认证与刷新](./axios/auth.md)） |
+| 接监控上报、全局错误提示、Loading  | `http/index.ts` 里给工厂传 `onReport` / `onError` / `onLoadingChange` 回调                        |
+| 新增横切能力（请求签名、灰度头等） | `http/` 新文件 + `client.ts` 一行装配                                                             |
 
-```ts [http.ts]
-import axios, {
-  type AxiosInstance,
-  type AxiosRequestConfig,
-  type InternalAxiosRequestConfig,
-} from "axios";
+### 删减方向
 
-// 项目统一响应结构：服务端返回 { code, message, data }，业务代码只拿 data。
-interface ApiResponse<T> {
+三个采用层级（[学习路径](./axios/learning-path.md)「选择你需要的层级」）映射到物理
+文件，砍能力就是删文件加删装配行，核心结构不变：
+
+- **停在项目请求层**（大多数后台管理项目）：删 `auth.ts`、`adapters/auth.ts`、
+  `session.ts`、`request-control.ts`、`retry.ts`、`transfer.ts`，去掉 `client.ts`
+  里对应的拦截器安装和工厂选项。
+- **只要基础层**：整套封装都不需要——`axios.create()` 加 `baseURL`、`timeout`
+  就够，很多内部工具停在这里就是对的。
+
+## 接口约定与协议立场
+
+示例后端的成功响应统一套一层信封：
+
+```ts
+export interface ApiEnvelope<Data> {
   code: number;
   message: string;
-  data: T;
+  data: Data;
 }
+```
 
-type RequestKeyResolver<D = unknown> = (config: InternalAxiosRequestConfig<D>) => string;
+立场只有几条，但每条都影响整个封装的形状：
 
-type RequestConfig<D = unknown> = AxiosRequestConfig<D> & {
-  // 静默请求：调用方可用它跳过全局错误提示。
-  silent?: boolean;
-  // 登录、刷新 token 等接口可跳过 Authorization 头。
-  skipAuth?: boolean;
-  // 全局 loading 默认关闭，由调用方按需开启。
-  showLoading?: boolean;
-  // 是否参与重复请求处理。
-  dedupe?: boolean;
-  // 带请求体的方法可由业务提供语义化标识或计算函数。
-  dedupeKey?: string | RequestKeyResolver<D>;
-};
+- **HTTP 状态码是成功与否的唯一权威。** `code` 只是元数据，传输层不写
+  `if (code !== 0) throw`——那会让同一个失败出现两套并存的表达，重试、监控、网关
+  每一层都要猜该看哪一个。
+- 登录失效使用 HTTP `401`，不是 `200` 加业务错误码。
+- `204 No Content`、文件下载和第三方接口不套用信封。
+- Access Token 放内存；Refresh Token 走 `HttpOnly` Cookie，前端读不到。
 
-type InternalRequestConfig<D = unknown> = InternalAxiosRequestConfig<D> & RequestConfig<D>;
+### 后端用 200 + 业务码表达失败怎么办
 
-class HttpClient {
-  private instance: AxiosInstance;
+按顺序考虑三层：
 
-  constructor() {
-    this.instance = axios.create({
-      // Vite 会按模式读取 .env.development / .env.production。
-      // 示例：VITE_API_BASE_URL=/api 或 https://api.example.com。
-      baseURL: import.meta.env.VITE_API_BASE_URL,
-      timeout: 10000,
-      headers: {
-        "Content-Type": "application/json",
-      },
+1. **首选：推动后端用 HTTP 状态码表达失败。** 标准语义让重试、监控、网关、缓存全
+   链路不需要私有知识。
+2. **个别接口如此：在业务模块里翻译**（学习路径阶段八的做法），传输层不动。
+3. **整个后端如此、存量协议改不动：改写 `adapters/envelope.ts` 一个文件。**
+   「`code` 非 0 即失败」就是这一支后端的协议事实，而协议判定本来就属于协议
+   Adapter。改法和代价见[最小客户端](./axios/minimal-client.md)「整个后端都用
+   200 + 业务码怎么办」。
+
+## 默认能力与可选能力
+
+| 能力           | 状态           | 说明                                                                          |
+| -------------- | -------------- | ----------------------------------------------------------------------------- |
+| API 地址与超时 | 默认启用       | 工厂统一 `baseURL`、`timeout`，配置白名单拦住调用方按请求改回                 |
+| 请求凭证       | 默认启用       | 自动附 `Authorization`，401 单飞刷新后重放；`skipAuth: true` 按请求跳过       |
+| 数据剥壳       | 默认启用       | Envelope Adapter 拆 `{ code, message, data }`；`raw()` 拿完整响应             |
+| 统一错误       | 默认启用       | 归一化分类 + Presenter 文案 + 上报；`errorMode: "silent"` 只关展示不关上报    |
+| 外部取消信号   | 可选           | 按请求传 `signal`；`cancelAll()` 双层取消始终可用                             |
+| 全局 Loading   | 可选，默认关闭 | `showLoading: true` 按请求开启；按逻辑请求计数，只在 0↔1 边界回调             |
+| 自动重试       | 可选，默认关闭 | 仅安全读方法，写请求即使显式要求也不重试；带总时间预算与退避抖动              |
+| 文件传输       | 可选           | `fetchFile`/`saveFile` 带凭证下载并读文件名，`downloadDirect` 走 URL 签名直链 |
+| 重复请求取消   | 不做           | 归查询层（TanStack Query、pinia-colada 等）——它们持有查询身份                 |
+| 接口缓存       | 不做           | 同上；HTTP 层只看得到一次孤立传输                                             |
+
+## 不负责什么
+
+- **写请求防重复提交**：客户端取消挡不住已经落库的请求，必须由服务端幂等兜底。
+- **XSRF 头部**：凭证主体走内存 Bearer 头，跨域 Cookie 只暴露给刷新接口；防线在
+  服务端的同源与 Origin 校验，前端不再附带 XSRF 头。
+
+## 调用长什么样
+
+页面只认领域概念，业务模块负责 URL、类型和状态码翻译：
+
+```ts
+// src/api/modules/users.ts
+export async function createUser(input: CreateUserInput): Promise<User> {
+  try {
+    // silent 只关全局 Toast 展示，不关监控上报——409 要显示在表单字段旁边
+    return await http.post<User, CreateUserInput>("/users", input, {
+      errorMode: "silent",
     });
-
-    this.setupInterceptors();
-  }
-
-  private setupInterceptors() {
-    // request.use 的第二个参数只处理请求发送前、拦截器链已经进入拒绝状态的异常。
-    // 当前没有额外的恢复或清理逻辑，因此省略；只返回 Promise.reject(error) 与省略效果相同。
-    // 网络错误、超时和非 2xx 响应由响应拦截器的失败回调统一处理。
-    this.instance.interceptors.request.use((config: InternalRequestConfig) => {
-      // config 是本次请求的完整配置对象；headers 只是 config 里的请求头部分。
-      if (!config.skipAuth) {
-        const token = localStorage.getItem("access_token");
-        if (token) {
-          // 修改请求头时，只改 config.headers，而不是把 config 当成 headers。
-          config.headers.Authorization = `Bearer ${token}`;
-        }
-      }
-
-      // 公共参数也可以在这里统一追加，例如 tenantId、locale、traceId。
-      return config;
-    });
-
-    this.instance.interceptors.response.use(
-      (response) => {
-        const result = response.data as ApiResponse<unknown>;
-
-        if (result.code !== 0) {
-          // 基础错误提示放在这里；复杂错误归一化放到“拦截器进阶”。
-          return Promise.reject(new Error(result.message || "请求失败"));
-        }
-
-        // 数据剥壳：调用 http.get<User>() 时，业务代码直接拿到 User。
-        return result.data;
-      },
-      (error) => {
-        // 这里处理请求发出后的网络错误、超时、取消和非 2xx 响应。
-        return Promise.reject(error);
-      },
-    );
-  }
-
-  request<T, D = unknown>(config: RequestConfig<D>): Promise<T> {
-    return this.instance.request<unknown, T, D>(config);
-  }
-
-  get<T>(url: string, config?: RequestConfig): Promise<T> {
-    return this.instance.get<unknown, T>(url, config);
-  }
-
-  delete<T, D = unknown>(url: string, config?: RequestConfig<D>): Promise<T> {
-    return this.instance.delete<unknown, T, D>(url, config);
-  }
-
-  head<T>(url: string, config?: RequestConfig): Promise<T> {
-    return this.instance.head<unknown, T>(url, config);
-  }
-
-  options<T>(url: string, config?: RequestConfig): Promise<T> {
-    return this.instance.options<unknown, T>(url, config);
-  }
-
-  post<T, D = unknown>(url: string, data?: D, config?: RequestConfig<D>): Promise<T> {
-    return this.instance.post<unknown, T, D>(url, data, config);
-  }
-
-  put<T, D = unknown>(url: string, data?: D, config?: RequestConfig<D>): Promise<T> {
-    return this.instance.put<unknown, T, D>(url, data, config);
-  }
-
-  patch<T, D = unknown>(url: string, data?: D, config?: RequestConfig<D>): Promise<T> {
-    return this.instance.patch<unknown, T, D>(url, data, config);
-  }
-}
-
-export const http = new HttpClient();
-
-// 使用时在调用点传入泛型，而不是指望拦截器“自动推导”运行时数据类型。
-interface User {
-  id: number;
-  name: string;
-}
-
-const user = await http.get<User>("/user/1");
-```
-
-```js [http.js]
-import axios from "axios";
-
-/**
- * 项目统一响应结构：服务端返回 { code, message, data }，业务代码只拿 data。
- * @template T
- * @typedef {{ code: number, message: string, data: T }} ApiResponse
- */
-
-/**
- * @typedef {import("axios").AxiosRequestConfig & {
- *   silent?: boolean,
- *   skipAuth?: boolean,
- *   showLoading?: boolean,
- *   dedupe?: boolean,
- *   dedupeKey?: string | ((config: import("axios").InternalAxiosRequestConfig) => string)
- * }} RequestConfig
- */
-
-function createHttpClient() {
-  const instance = axios.create({
-    // Vite 会按模式读取 .env.development / .env.production。
-    // 示例：VITE_API_BASE_URL=/api 或 https://api.example.com。
-    baseURL: import.meta.env.VITE_API_BASE_URL,
-    timeout: 10000,
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
-
-  // request.use 的第二个参数只处理请求发送前、拦截器链已经进入拒绝状态的异常。
-  // 当前没有额外的恢复或清理逻辑，因此省略；只返回 Promise.reject(error) 与省略效果相同。
-  // 网络错误、超时和非 2xx 响应由响应拦截器的失败回调统一处理。
-  instance.interceptors.request.use((config) => {
-    // config 是本次请求的完整配置对象；headers 只是 config 里的请求头部分。
-    if (!config.skipAuth) {
-      const token = localStorage.getItem("access_token");
-      if (token) {
-        // 修改请求头时，只改 config.headers，而不是把 config 当成 headers。
-        config.headers.Authorization = `Bearer ${token}`;
-      }
+  } catch (error) {
+    if (error instanceof HttpError && error.status === 409) {
+      throw new UserAlreadyExistsError(error);
     }
-
-    // 公共参数也可以在这里统一追加，例如 tenantId、locale、traceId。
-    return config;
-  });
-
-  instance.interceptors.response.use(
-    (response) => {
-      /** @type {ApiResponse<unknown>} */
-      const result = response.data;
-
-      if (result.code !== 0) {
-        // 基础错误提示放在这里；复杂错误归一化放到“拦截器进阶”。
-        return Promise.reject(new Error(result.message || "请求失败"));
-      }
-
-      // 数据剥壳：调用方直接拿到业务数据。
-      return result.data;
-    },
-    (error) => {
-      // 这里处理请求发出后的网络错误、超时、取消和非 2xx 响应。
-      return Promise.reject(error);
-    },
-  );
-
-  return {
-    /**
-     * @template T
-     * @param {RequestConfig} config
-     * @returns {Promise<T>}
-     */
-    request(config) {
-      return instance.request(config);
-    },
-
-    /**
-     * @template T
-     * @param {string} url
-     * @param {RequestConfig} [config]
-     * @returns {Promise<T>}
-     */
-    get(url, config) {
-      return instance.get(url, config);
-    },
-
-    /**
-     * @template T
-     * @param {string} url
-     * @param {RequestConfig} [config]
-     * @returns {Promise<T>}
-     */
-    delete(url, config) {
-      return instance.delete(url, config);
-    },
-
-    /**
-     * @template T
-     * @param {string} url
-     * @param {RequestConfig} [config]
-     * @returns {Promise<T>}
-     */
-    head(url, config) {
-      return instance.head(url, config);
-    },
-
-    /**
-     * @template T
-     * @param {string} url
-     * @param {RequestConfig} [config]
-     * @returns {Promise<T>}
-     */
-    options(url, config) {
-      return instance.options(url, config);
-    },
-
-    /**
-     * @template T
-     * @template D
-     * @param {string} url
-     * @param {D} [data]
-     * @param {RequestConfig} [config]
-     * @returns {Promise<T>}
-     */
-    post(url, data, config) {
-      return instance.post(url, data, config);
-    },
-
-    /**
-     * @template T
-     * @template D
-     * @param {string} url
-     * @param {D} [data]
-     * @param {RequestConfig} [config]
-     * @returns {Promise<T>}
-     */
-    put(url, data, config) {
-      return instance.put(url, data, config);
-    },
-
-    /**
-     * @template T
-     * @template D
-     * @param {string} url
-     * @param {D} [data]
-     * @param {RequestConfig} [config]
-     * @returns {Promise<T>}
-     */
-    patch(url, data, config) {
-      return instance.patch(url, data, config);
-    },
-  };
-}
-
-export const http = createHttpClient();
-```
-
-:::
-
-### 3. 拦截器进阶
-
-拦截器进阶处理的是跨请求的公共行为：请求标识、loading、错误归一化，以及登录态刷新。
-
-#### 3.1 请求策略与前置处理
-
-基础请求拦截器已经完成 `token` 和`公共参数处理`。进阶部分继续解决两个问题：
-
-- 为`取消重复请求`、`接口缓存`生成稳定的请求标识。
-- 按请求`控制全局 loading`，并正确`处理并发请求`。
-
-请求拦截器只负责发出请求前的准备工作。请求完成后的 loading 清理放在响应拦截器中，具体的重复请求取消放在第 4 节。
-
-Axios 能发送哪些方法，与哪些方法适合自动生成去重标识是两个问题。通用 `request` 方法负责完整的方法覆盖；自动标识只用于无需检查请求体的安全方法：
-
-| 方法                       | 默认标识策略           | 原因                                      |
-| -------------------------- | ---------------------- | ----------------------------------------- |
-| `GET` / `HEAD` / `OPTIONS` | 根据 method + URL 生成 | 安全方法，参数可以由完整 URL 表达         |
-| `QUERY`                    | 要求提供 `dedupeKey`   | 请求体参与查询条件，且仍是实验性方法      |
-| `POST` / `PUT` / `PATCH`   | 要求提供 `dedupeKey`   | 请求体可能是 JSON、FormData、File 或 Blob |
-| `DELETE`                   | 要求提供 `dedupeKey`   | 虽然幂等，但仍可能改变服务端状态          |
-| `postForm` 等表单快捷方法  | 要求提供 `dedupeKey`   | 请求体可能包含无法稳定序列化的文件        |
-
-这里不尝试对任意请求体执行 `JSON.stringify`。业务比通用封装更清楚哪些字段真正决定“同一个请求”，因此带请求体的方法使用语义化 key 更可靠。
-
-##### 请求级配置
-
-第 2 节的 `RequestConfig` 增加以下配置：
-
-| 配置          | 默认值  | 作用                   |
-| ------------- | ------- | ---------------------- |
-| `showLoading` | `false` | 是否展示全局 loading   |
-| `dedupe`      | `false` | 是否参与重复请求处理   |
-| `dedupeKey`   | 无      | 指定请求标识或计算函数 |
-| `skipAuth`    | `false` | 是否跳过登录凭证       |
-| `silent`      | `false` | 是否跳过全局错误提示   |
-
-`showLoading` 和 `silent` 分别控制 loading 与错误提示，避免一个配置承担多种含义。
-
-##### 请求标识与 loading
-
-::: code-group
-
-```ts [http.ts]
-type RequestRuntimeMeta = {
-  requestKey?: string;
-  loadingStarted?: boolean;
-  retrying?: boolean;
-};
-
-type AdvancedRequestConfig = InternalRequestConfig & {
-  __requestMeta?: RequestRuntimeMeta;
-};
-
-const AUTO_KEY_METHODS = new Set(["get", "head", "options"]);
-
-function getRequestMeta(config: AdvancedRequestConfig) {
-  config.__requestMeta ??= {};
-  return config.__requestMeta;
-}
-
-function resolveRequestKey(instance: AxiosInstance, config: AdvancedRequestConfig) {
-  const method = (config.method ?? "get").toLowerCase();
-  const uri = instance.getUri(config);
-
-  if (config.dedupeKey) {
-    const customKey =
-      typeof config.dedupeKey === "function" ? config.dedupeKey(config) : config.dedupeKey;
-
-    return `${method}:${uri}:${customKey}`;
-  }
-
-  // 只有不依赖请求体的安全方法可以直接使用 URL 生成 key。
-  if (AUTO_KEY_METHODS.has(method)) {
-    return `${method}:${uri}`;
-  }
-
-  return undefined;
-}
-
-function createRequestLifecycle(instance: AxiosInstance) {
-  let loadingCount = 0;
-
-  function startLoading(config: AdvancedRequestConfig) {
-    const meta = getRequestMeta(config);
-
-    if (!config.showLoading || meta.loadingStarted) {
-      return;
-    }
-
-    meta.loadingStarted = true;
-    loadingCount += 1;
-
-    if (loadingCount === 1) {
-      // openGlobalLoading();
-    }
-  }
-
-  function finish(config?: InternalAxiosRequestConfig) {
-    const currentConfig = config as AdvancedRequestConfig | undefined;
-
-    if (!currentConfig?.__requestMeta?.loadingStarted) {
-      return;
-    }
-
-    currentConfig.__requestMeta.loadingStarted = false;
-    loadingCount = Math.max(loadingCount - 1, 0);
-
-    if (loadingCount === 0) {
-      // closeGlobalLoading();
-    }
-  }
-
-  function prepare(config: InternalRequestConfig) {
-    const currentConfig = config as AdvancedRequestConfig;
-
-    if (currentConfig.dedupe) {
-      const requestKey = resolveRequestKey(instance, currentConfig);
-
-      if (!requestKey) {
-        const method = (currentConfig.method ?? "get").toUpperCase();
-        throw new TypeError(`${method} 请求启用 dedupe 时必须提供 dedupeKey`);
-      }
-
-      getRequestMeta(currentConfig).requestKey = requestKey;
-    }
-
-    // 放在最后执行，避免前置处理抛错后遗留未关闭的 loading。
-    startLoading(currentConfig);
-    return config;
-  }
-
-  return {
-    prepare,
-    finish,
-    resolveKey: (config: AdvancedRequestConfig) => resolveRequestKey(instance, config),
-  };
-}
-```
-
-```js [http.js]
-/**
- * @typedef {import("axios").InternalAxiosRequestConfig & RequestConfig & {
- *   __requestMeta?: {
- *     requestKey?: string,
- *     loadingStarted?: boolean,
- *     retrying?: boolean
- *   }
- * }} AdvancedRequestConfig
- */
-
-const AUTO_KEY_METHODS = new Set(["get", "head", "options"]);
-
-/** @param {AdvancedRequestConfig} config */
-function getRequestMeta(config) {
-  config.__requestMeta ??= {};
-  return config.__requestMeta;
-}
-
-/**
- * @param {import("axios").AxiosInstance} instance
- * @param {AdvancedRequestConfig} config
- */
-function resolveRequestKey(instance, config) {
-  const method = (config.method ?? "get").toLowerCase();
-  const uri = instance.getUri(config);
-
-  if (config.dedupeKey) {
-    const customKey =
-      typeof config.dedupeKey === "function" ? config.dedupeKey(config) : config.dedupeKey;
-
-    return `${method}:${uri}:${customKey}`;
-  }
-
-  // 只有不依赖请求体的安全方法可以直接使用 URL 生成 key。
-  if (AUTO_KEY_METHODS.has(method)) {
-    return `${method}:${uri}`;
-  }
-
-  return undefined;
-}
-
-/**
- * @param {import("axios").AxiosInstance} instance
- */
-function createRequestLifecycle(instance) {
-  let loadingCount = 0;
-
-  /** @param {AdvancedRequestConfig} config */
-  function startLoading(config) {
-    const meta = getRequestMeta(config);
-
-    if (!config.showLoading || meta.loadingStarted) {
-      return;
-    }
-
-    meta.loadingStarted = true;
-    loadingCount += 1;
-
-    if (loadingCount === 1) {
-      // openGlobalLoading();
-    }
-  }
-
-  /** @param {AdvancedRequestConfig | undefined} config */
-  function finish(config) {
-    if (!config?.__requestMeta?.loadingStarted) {
-      return;
-    }
-
-    config.__requestMeta.loadingStarted = false;
-    loadingCount = Math.max(loadingCount - 1, 0);
-
-    if (loadingCount === 0) {
-      // closeGlobalLoading();
-    }
-  }
-
-  /** @param {AdvancedRequestConfig} config */
-  function prepare(config) {
-    if (config.dedupe) {
-      const requestKey = resolveRequestKey(instance, config);
-
-      if (!requestKey) {
-        const method = (config.method ?? "get").toUpperCase();
-        throw new TypeError(`${method} 请求启用 dedupe 时必须提供 dedupeKey`);
-      }
-
-      getRequestMeta(config).requestKey = requestKey;
-    }
-
-    // 放在最后执行，避免前置处理抛错后遗留未关闭的 loading。
-    startLoading(config);
-    return config;
-  }
-
-  return {
-    prepare,
-    finish,
-    resolveKey: (config) => resolveRequestKey(instance, config),
-  };
-}
-```
-
-:::
-
-在第 2 节已有的拦截器中接入生命周期，不再为 token、请求标识和 loading 分别注册多个请求拦截器。请求开始和结束必须成对处理：
-
-::: code-group
-
-```ts [http.ts]
-const requestLifecycle = createRequestLifecycle(this.instance);
-
-this.instance.interceptors.request.use((config: InternalRequestConfig) => {
-  if (!config.skipAuth) {
-    const token = localStorage.getItem("access_token");
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-  }
-
-  // 公共参数处理完成后，再生成 key 并启动 loading。
-  return requestLifecycle.prepare(config);
-});
-
-this.instance.interceptors.response.use(
-  (response) => {
-    requestLifecycle.finish(response.config);
-
-    const result = response.data as ApiResponse<unknown>;
-    if (result.code !== 0) {
-      throw new Error(result.message || "请求失败");
-    }
-
-    return result.data;
-  },
-  (error: unknown) => {
-    requestLifecycle.finish(axios.isAxiosError(error) ? error.config : undefined);
     throw error;
-  },
-);
-```
-
-```js [http.js]
-const requestLifecycle = createRequestLifecycle(instance);
-
-instance.interceptors.request.use((config) => {
-  if (!config.skipAuth) {
-    const token = localStorage.getItem("access_token");
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-  }
-
-  // 公共参数处理完成后，再生成 key 并启动 loading。
-  return requestLifecycle.prepare(config);
-});
-
-instance.interceptors.response.use(
-  (response) => {
-    requestLifecycle.finish(response.config);
-
-    const result = response.data;
-    if (result.code !== 0) {
-      throw new Error(result.message || "请求失败");
-    }
-
-    return result.data;
-  },
-  (error) => {
-    requestLifecycle.finish(axios.isAxiosError(error) ? error.config : undefined);
-    throw error;
-  },
-);
-```
-
-:::
-
-调用方按需启用能力。URL 参数请求可以自动生成 key；带请求体的方法需要提供语义化 key：
-
-::: code-group
-
-```ts [TypeScript]
-type SearchPayload = {
-  keyword: string;
-  page: number;
-};
-
-http.get<User[]>("/users", {
-  params: { keyword: "axios" },
-  showLoading: true,
-  dedupe: true,
-});
-
-http.post<User[], SearchPayload>(
-  "/users/search",
-  { keyword: "axios", page: 1 },
-  {
-    dedupe: true,
-    dedupeKey: (config) => {
-      const body = config.data as SearchPayload;
-      return `${body.keyword}:${body.page}`;
-    },
-  },
-);
-```
-
-```js [JavaScript]
-http.get("/users", {
-  params: { keyword: "axios" },
-  showLoading: true,
-  dedupe: true,
-});
-
-http.post(
-  "/users/search",
-  { keyword: "axios", page: 1 },
-  {
-    dedupe: true,
-    dedupeKey: (config) => {
-      const body = config.data;
-      return `${body.keyword}:${body.page}`;
-    },
-  },
-);
-```
-
-:::
-
-需要注意：
-
-1. 全局 loading 默认关闭，页面局部加载状态仍由页面自身管理。
-2. `request` 方法负责完整的方法覆盖，`AUTO_KEY_METHODS` 只决定哪些方法可以自动生成 key。
-3. `finish` 在最终成功、失败和取消路径中只执行一次；token 刷新时应等重放请求最终结束后再执行。
-4. `requestLifecycle.resolveKey` 可以独立用于接口缓存，不要求同时开启 `dedupe`。
-5. 写请求的客户端取消不能替代服务端幂等机制。
-6. `__requestMeta.requestKey` 的登记、替换和清理统一放在第 4 节的 `pendingMap` 中实现。
-
-#### 3.2 响应拦截器进阶
-
-- 错误归一化（HTTP 错误 / 业务错误 / 网络错误）
-- token 无感刷新
-  - 401 捕获与请求重放
-  - 并发处理：多个 401 只刷新一次（等待队列）
-  - 刷新失败兜底（退出登录）
-
-```ts
-type NormalizedError = {
-  type: "http" | "business" | "network" | "cancel";
-  status?: number;
-  code?: number;
-  message: string;
-};
-
-function normalizeError(error: unknown): NormalizedError {
-  if (axios.isCancel(error)) {
-    return { type: "cancel", message: "请求已取消" };
-  }
-
-  if (axios.isAxiosError(error)) {
-    if (error.response) {
-      return {
-        type: "http",
-        status: error.response.status,
-        message: error.message,
-      };
-    }
-
-    return {
-      type: "network",
-      message: "网络异常，请稍后重试",
-    };
-  }
-
-  return {
-    type: "business",
-    message: error instanceof Error ? error.message : "请求失败",
-  };
-}
-```
-
-Token 无感刷新需要重点处理并发：不能每个 401 都刷新一次 token。
-
-```ts
-type RefreshQueueItem = {
-  resolve: (token: string) => void;
-  reject: (error: unknown) => void;
-};
-
-let isRefreshing = false;
-let refreshQueue: RefreshQueueItem[] = [];
-
-async function refreshToken() {
-  const refreshTokenValue = localStorage.getItem("refresh_token");
-  const result = await axios.post<{ accessToken: string }>("/auth/refresh", {
-    refreshToken: refreshTokenValue,
-  });
-
-  localStorage.setItem("access_token", result.data.accessToken);
-  return result.data.accessToken;
-}
-
-function replayWaitingRequests(token: string) {
-  refreshQueue.forEach(({ resolve }) => resolve(token));
-  refreshQueue = [];
-}
-
-function rejectWaitingRequests(error: unknown) {
-  refreshQueue.forEach(({ reject }) => reject(error));
-  refreshQueue = [];
-}
-
-function logout() {
-  localStorage.removeItem("access_token");
-  localStorage.removeItem("refresh_token");
-  // redirectToLogin();
-}
-```
-
-响应拦截器中只保留流程骨架，具体的存储、跳转、提示逻辑交给项目能力处理。
-
-```ts
-this.instance.interceptors.response.use(
-  (response) => {
-    requestLifecycle.finish(response.config);
-    return response.data.data;
-  },
-  async (error) => {
-    const originalRequest = error.config as AdvancedRequestConfig | undefined;
-
-    if (
-      !originalRequest ||
-      error.response?.status !== 401 ||
-      originalRequest.__requestMeta?.retrying
-    ) {
-      requestLifecycle.finish(originalRequest);
-      throw normalizeError(error);
-    }
-
-    getRequestMeta(originalRequest).retrying = true;
-
-    if (isRefreshing) {
-      return new Promise((resolve, reject) => {
-        refreshQueue.push({
-          resolve: (token) => {
-            originalRequest.headers.Authorization = `Bearer ${token}`;
-            resolve(this.instance(originalRequest));
-          },
-          reject: (refreshError) => {
-            requestLifecycle.finish(originalRequest);
-            reject(refreshError);
-          },
-        });
-      });
-    }
-
-    try {
-      isRefreshing = true;
-      const token = await refreshToken();
-      replayWaitingRequests(token);
-      originalRequest.headers.Authorization = `Bearer ${token}`;
-      return this.instance(originalRequest);
-    } catch (refreshError) {
-      requestLifecycle.finish(originalRequest);
-      rejectWaitingRequests(refreshError);
-      logout();
-      throw refreshError;
-    } finally {
-      isRefreshing = false;
-    }
-  },
-);
-```
-
-### 4. 取消请求（基于 AbortController）
-
-新版 Axios 推荐使用 `AbortController`，不再优先使用 `CancelToken`。
-
-- 单个请求取消
-- 重复请求取消（pendingMap，结合拦截器实现）
-- 全部请求取消（路由切换场景）
-
-#### 4.1 单个请求取消
-
-```ts
-const controller = new AbortController();
-
-http.get<User[]>("/users", {
-  signal: controller.signal,
-});
-
-controller.abort();
-```
-
-#### 4.2 重复请求取消
-
-重复请求取消适合搜索、筛选等只关心最新结果的场景。写请求即使在客户端取消，也可能已经被服务端处理，不能把它当作防止重复提交的唯一手段。
-
-```ts
-type PendingRequest = {
-  controller: AbortController;
-  signal: AbortSignal;
-};
-
-const pendingMap = new Map<string, PendingRequest>();
-
-function addPendingRequest(config: AdvancedRequestConfig) {
-  const requestKey = config.__requestMeta?.requestKey;
-  if (!requestKey) {
-    return;
-  }
-
-  pendingMap.get(requestKey)?.controller.abort();
-
-  const controller = new AbortController();
-  const signal = config.signal
-    ? AbortSignal.any([config.signal, controller.signal])
-    : controller.signal;
-
-  config.signal = signal;
-  pendingMap.set(requestKey, { controller, signal });
-}
-
-function removePendingRequest(config: AdvancedRequestConfig) {
-  const requestKey = config.__requestMeta?.requestKey;
-  if (!requestKey) {
-    return;
-  }
-
-  // 被取消的旧请求稍后进入错误分支时，不能删除已经登记的新请求。
-  if (pendingMap.get(requestKey)?.signal === config.signal) {
-    pendingMap.delete(requestKey);
   }
 }
 ```
 
-请求准备和 pending 登记放在同一个请求拦截器中，避免多个请求拦截器的执行顺序影响结果：
-
 ```ts
-this.instance.interceptors.request.use((config: InternalRequestConfig) => {
-  // 此前仍可保留 token、公共参数等基础处理。
-  const preparedConfig = requestLifecycle.prepare(config);
-  addPendingRequest(preparedConfig as AdvancedRequestConfig);
-  return preparedConfig;
-});
-
-this.instance.interceptors.response.use(
-  (response) => {
-    removePendingRequest(response.config);
-    return response;
-  },
-  (error) => {
-    if (error.config) {
-      removePendingRequest(error.config);
-    }
-
-    return Promise.reject(error);
-  },
-);
-```
-
-#### 4.3 全部请求取消
-
-全部取消通常用于路由切换、退出登录、关闭页面级弹窗等场景。
-
-```ts
-function cancelAllRequests() {
-  pendingMap.forEach(({ controller }) => controller.abort());
-  pendingMap.clear();
-}
-```
-
-注意事项：
-
-1. 取消请求只是不再接收客户端响应，不代表服务端一定停止处理。
-2. 取消异常需要单独识别，避免显示成普通错误。
-3. 批量取消要保证幂等，重复调用不应该报错。
-
-### 5. 可选增强
-
-可选增强不要一开始就全部塞进基础封装。它们更适合在项目确实需要时按能力增量加入。
-
-#### 5.1 接口缓存
-
-接口缓存适合低频变化的数据，例如字典、配置项、静态枚举。缓存 key 可以复用请求标识。
-
-```ts
-const cacheMap = new Map<string, { expireAt: number; data: unknown }>();
-
-function getCache<T>(key: string): T | undefined {
-  const cached = cacheMap.get(key);
-  if (!cached || cached.expireAt < Date.now()) {
-    cacheMap.delete(key);
-    return undefined;
+// 页面
+try {
+  await createUser({ name: "Ada" });
+} catch (error) {
+  if (error instanceof UserAlreadyExistsError) {
+    setFieldError("name", "用户名已存在");
   }
-
-  return cached.data as T;
-}
-
-function setCache(key: string, data: unknown, ttl = 60_000) {
-  cacheMap.set(key, {
-    data,
-    expireAt: Date.now() + ttl,
-  });
 }
 ```
 
-#### 5.2 失败重试
+## 采用前检查
 
-重试适合网络抖动、幂等 GET 请求、短暂服务不可用。不要默认重试非幂等写请求。
+把这套封装接进项目之前，逐项确认；任何一项对不上，先读对应页再动手：
 
-```ts
-async function retry<T>(task: () => Promise<T>, max = 2): Promise<T> {
-  let lastError: unknown;
+| 检查项                                       | 对不上时看哪                                                  |
+| -------------------------------------------- | ------------------------------------------------------------- |
+| 后端用 HTTP 状态码表达失败，成功码已确认     | 上文「200 + 业务码」三层适配                                  |
+| 登录失效返回的 HTTP 状态是 `401`             | [认证与刷新](./axios/auth.md)「什么时候必须改契约」           |
+| 刷新接口与普通接口是否同一套信封/域名规则    | 刷新走独立裸实例、不套信封（[认证与刷新](./axios/auth.md)）   |
+| token 保存方式已定（内存 + HttpOnly Cookie） | 换方案看[认证与刷新](./axios/auth.md)「换一种认证方案会怎样」 |
+| 文件接口的返回形态已确认（响应体还是直链）   | [生命周期能力](./axios/lifecycle.md)「两条下载路径」          |
+| Loading、retry 等可选能力按需开启            | 默认关闭是有意的，接查询层时重试归上层                        |
+| 并发 401 的行为有自动化测试兜底              | `test/http-client.test.ts` 可直接当模板                       |
+| 上传/下载的取消与 `204` 场景已验证           | `test/protocol-and-utilities.test.ts`、`browser-tests/`       |
 
-  for (let index = 0; index <= max; index += 1) {
-    try {
-      return await task();
-    } catch (error) {
-      lastError = error;
-    }
-  }
+## 参考
 
-  throw lastError;
-}
-```
-
-#### 5.3 上传 / 下载（进度回调）
-
-上传和下载通常需要单独暴露方法，因为它们的响应类型、进度事件和错误提示方式不同于普通 JSON 请求。
-
-```ts
-function upload<T>(url: string, file: File, onProgress?: (percent: number) => void) {
-  const formData = new FormData();
-  formData.append("file", file);
-
-  return http.post<T, FormData>(url, formData, {
-    headers: {
-      "Content-Type": "multipart/form-data",
-    },
-    onUploadProgress(event) {
-      if (event.total) {
-        onProgress?.(Math.round((event.loaded / event.total) * 100));
-      }
-    },
-  });
-}
-```
-
-### 参考资料
-
-> [Juejin: Axios 封装方案](https://juejin.cn/post/7124573626161954823)
->
-> [blog/docs/ts/axios.md at master · kvchen95/blog](https://github.com/kvchen95/blog/blob/master/docs/ts/axios.md)
->
-> [基于 Axios 封装一个完美的双 token 无感刷新 - 掘金](https://juejin.cn/post/7271139265442021391)
->
-> <https://mp.weixin.qq.com/s/7ZjF2ZtDShC9UiWOTjxm4Q>
->
-> <https://mp.weixin.qq.com/s/LHDd3Tol0JIORdMfFpZKaA>
+- [Axios：创建实例](https://axios-http.com/docs/instance)
+- [Axios：拦截器](https://axios-http.com/docs/interceptors)
+- [Axios：错误处理](https://axios-http.com/docs/handling_errors)
+- [Axios：取消请求](https://axios-http.com/docs/cancellation)
+- [Axios：multipart/form-data](https://axios-http.com/docs/multipart)
+- [OWASP：Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
