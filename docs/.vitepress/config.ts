@@ -92,7 +92,40 @@ const frontend = [
         collapsed: false,
         items: [
           { text: "Overview", link: "/frontend_data_fetching/clients" },
-          { text: "Axios", link: "/frontend_data_fetching/clients/axios" },
+          {
+            text: "Axios",
+            collapsed: false,
+            items: [
+              {
+                text: "Overview",
+                link: "/frontend_data_fetching/clients/axios",
+              },
+              {
+                text: "学习路径",
+                link: "/frontend_data_fetching/clients/axios/learning-path",
+              },
+              {
+                text: "最小客户端",
+                link: "/frontend_data_fetching/clients/axios/minimal-client",
+              },
+              {
+                text: "逻辑请求与错误",
+                link: "/frontend_data_fetching/clients/axios/request-and-errors",
+              },
+              {
+                text: "生命周期能力",
+                link: "/frontend_data_fetching/clients/axios/lifecycle",
+              },
+              {
+                text: "认证与刷新",
+                link: "/frontend_data_fetching/clients/axios/auth",
+              },
+              {
+                text: "业务模块与端到端",
+                link: "/frontend_data_fetching/clients/axios/modules-and-e2e",
+              },
+            ],
+          },
         ],
       },
       {
@@ -177,7 +210,7 @@ export default defineConfig({
   description: "Personal full-stack development knowledge base",
   cleanUrls: true,
   ignoreDeadLinks: true,
-  srcExclude: ["**/legacy/**"],
+  srcExclude: ["**/legacy/**", "**/projects/axios-http/**"],
   markdown: {
     math: true,
   },

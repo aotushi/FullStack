@@ -18,6 +18,7 @@ export default defineConfig({
       "docs/.vitepress/dist/**",
       "docs/**/legacy/**",
       "docs/archive/**",
+      "docs/projects/axios-http/**",
       "docs/**/examples/**/files/node_modules/**",
       "docs/**/examples/**/files/dist/**",
     ],

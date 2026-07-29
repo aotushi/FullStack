@@ -1,0 +1,10 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "fullstack-docs",
+      "url": "http://127.0.0.1:5180",
+      "port": 5180
+    }
+  ]
+}
