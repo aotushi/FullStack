@@ -125,6 +125,42 @@ function handleChange(value: string) {
 
 视频还演示了更激进的方式：拿到当前组件实例，把内部组件的 exposed 对象接到当前组件上，再用类型断言让外部获得更完整的方法提示。
 
+这里的 <ConceptNote
+  label="ref: changeRef 为什么会自动调用？"
+  title="函数模板引用：Vue 在登记组件实例"
+  description="changeRef 没有在代码里主动执行；它作为函数形式的 ref 被交给 Vue，由渲染器在建立模板引用时调用。"
+  :sections="[
+  {
+  title: '先看等价写法',
+  body: 'h() 只是创建并返回 VNode。第二个参数中的 ref 是 Vue 保留的特殊 attribute，不是传给 ElInput 的普通 prop。',
+  code: `h(ElInput, { ref: changeRef }, $slots)\n\n// 等价于\n<ElInput :ref='changeRef' />`,
+  },
+  {
+  title: '首次挂载时发生什么',
+  items: ['Vue 创建并挂载 ElInput。', '渲染器取得 ElInput 对父组件可见的公共实例。', 'Vue 调用 changeRef(elInputInstance)，完成引用登记。', 'changeRef 再把这个实例接到 MyInput 的 exposed 上。'],
+  },
+  {
+  title: '它不只调用一次',
+  items: ['首次挂载：参数是 ElInput 的公共组件实例。', '组件更新：函数模板引用可能再次执行。', 'ElInput 卸载：函数会再执行一次，参数是 null。'],
+  },
+  {
+  title: 'exposed 参数是什么',
+  body: '它不是 ElInput 的所有内部属性，而是组件对父级公开的实例接口。使用 script setup 的组件默认私有，通常只能访问它通过 defineExpose() 明确公开的内容。',
+  },
+  {
+  title: '不要和 ref() 混淆',
+  items: ['ref: changeRef 是函数模板引用，用于接收 DOM 元素或组件实例。', 'ref(value) 是响应式 API，用于创建带 .value 的响应式容器。'],
+  },
+  {
+  title: 'Vue 官方文档',
+  links: [
+  { label: '函数模板引用', href: 'https://cn.vuejs.org/guide/essentials/template-refs.html#function-refs' },
+  { label: 'ref 特殊 attribute', href: 'https://cn.vuejs.org/api/built-in-special-attributes.html#ref' },
+  ],
+  },
+  ]"
+/> 是理解下面这段代码的关键。
+
 核心思想可以概括成：
 
 ```ts
@@ -134,13 +170,16 @@ import { ElInput } from "element-plus";
 
 const vm = getCurrentInstance();
 
+//方法的透传使用ref,将函数绑定组件的ref->`h(ElInput, {...$attrs, ref:changeRef}, $slots)`. 当ElInput挂载时,就会把ElInput暴露出来的属性, 去调用这个函数
 function changeRef(exposed: unknown) {
   if (!vm) return;
 
   const elInput = exposed as ComponentInstance<typeof ElInput>;
   vm.exposed = elInput as unknown as Record<string, unknown>;
+  // vm.exposed 实际上等于 defineExpose(exposed)
 }
 
+// defineExpose的作用是将这个对象绑定到实例的某个属性上, 所以vm.expose可以代替defineExpose({exposed: exposed})
 defineExpose({} as ComponentInstance<typeof ElInput>);
 ```
 
