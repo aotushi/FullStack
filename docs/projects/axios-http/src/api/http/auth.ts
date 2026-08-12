@@ -171,7 +171,12 @@ export function installAuth(
             failedVersion = version;
             failedError = handledError;
             failedAt = Date.now();
-            expireOnce(version);
+            // 只有刷新端点明确回答 401——Refresh Token 本身失效——才终结会话。
+            // 网络错、超时、5xx 只说明端点「暂时无法回答」，此刻清会话会把一次
+            // 抖动放大成一次强制登出；留给上面的熔断冷却，窗口结束后自愈（D-65）。
+            if (axios.isAxiosError(error) && error.response?.status === 401) {
+              expireOnce(version);
+            }
           }
 
           throw handledError;
