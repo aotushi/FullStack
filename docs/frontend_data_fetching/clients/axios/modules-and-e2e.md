@@ -124,6 +124,7 @@ send() 第一次 → 503 → 归一化 HttpError(http, 503)
 | `test/protocol-and-utilities.test.ts` | 协议解包、错误分类、工具函数        |
 | `test/auth-session-isolation.test.ts` | 会话代际与链路隔离                  |
 | `test/failure-budgets.test.ts`        | 刷新冷却窗口、重试总预算            |
+| `test/session-sync.test.ts`           | 跨标签页会话同步与事件屏障          |
 | `test/users-module.test.ts`           | 业务领域错误转换                    |
 | `test/typecheck.ts`                   | 配置白名单的类型约束                |
 | `browser-tests/http-browser.spec.ts`  | 必须在真实浏览器验证的行为          |
@@ -163,6 +164,8 @@ pnpm check
 <<< @/projects/axios-http/test/auth-session-isolation.test.ts [auth-session-isolation.test.ts]
 
 <<< @/projects/axios-http/test/failure-budgets.test.ts [failure-budgets.test.ts]
+
+<<< @/projects/axios-http/test/session-sync.test.ts [session-sync.test.ts]
 
 <<< @/projects/axios-http/test/users-module.test.ts [users-module.test.ts]
 

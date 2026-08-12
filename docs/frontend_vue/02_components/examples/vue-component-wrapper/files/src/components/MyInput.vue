@@ -20,5 +20,6 @@ defineExpose({} as ComponentInstance<typeof ElInput>);
 
 <template>
   <h3>子组件MyInput</h3>
+  {{ aaaa }}
   <component :is="h(ElInput, { ...$attrs, ref: changeRef }, $slots)" />
 </template>

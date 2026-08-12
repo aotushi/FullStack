@@ -867,7 +867,7 @@ describe("authentication capability", () => {
     expect(session.onExpired).toHaveBeenCalledTimes(1);
   });
 
-  it("handles a concurrent network refresh failure without repeated display", async () => {
+  it("keeps the session on a concurrent network refresh failure without repeated display", async () => {
     const baseURL = await startServer((_request, response) => {
       sendJson(response, 401, {
         code: 40100,
@@ -911,7 +911,8 @@ describe("authentication capability", () => {
       ),
     ).toBe(true);
     expect(auth.refreshCredential).toHaveBeenCalledTimes(1);
-    expect(auth.expireSession).toHaveBeenCalledTimes(1);
+    // 网络错说明刷新端点「暂时无法回答」，不是凭证失效：会话必须保留（D-65）。
+    expect(auth.expireSession).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
     expect(onReport).toHaveBeenCalledTimes(10);
     expect(onReport.mock.calls.map(([error]) => error)).toEqual(
@@ -924,6 +925,71 @@ describe("authentication capability", () => {
         }),
       ),
     );
+  });
+
+  it("keeps the session on a 5xx refresh failure and recovers after the cooldown", async () => {
+    let refreshCount = 0;
+    const baseURL = await startServer((request, response) => {
+      if (request.url === "/auth/refresh") {
+        refreshCount += 1;
+        if (refreshCount === 1) {
+          sendJson(response, 503, {
+            code: 50300,
+            message: "refresh unavailable",
+            data: null,
+          });
+          return;
+        }
+
+        sendJson(response, 200, {
+          code: 0,
+          message: "ok",
+          data: { accessToken: "fresh" },
+        });
+        return;
+      }
+
+      if (request.headers.authorization === "Bearer fresh") {
+        sendJson(response, 200, {
+          code: 0,
+          message: "ok",
+          data: true,
+        });
+        return;
+      }
+
+      sendJson(response, 401, {
+        code: 40100,
+        message: "expired",
+        data: null,
+      });
+    });
+    const session = createMemoryAuthSession({
+      initialAccessToken: "expired",
+      onExpired: vi.fn(),
+    });
+    const http = createHttpClient({
+      baseURL,
+      auth: createTestAuth(baseURL, session),
+      refreshCooldownMs: 150,
+    });
+
+    // 刷新端点 503：请求失败，但这是端点的暂时故障而不是凭证失效，会话必须保留。
+    await expect(http.get("/protected")).rejects.toMatchObject({ status: 503 });
+    expect(refreshCount).toBe(1);
+    expect(session.onExpired).not.toHaveBeenCalled();
+    expect(session.getAccessToken()).toBe("expired");
+
+    // 冷却窗口内：熔断复用上次的失败，不再打刷新端点。
+    await expect(http.get("/protected")).rejects.toMatchObject({ status: 503 });
+    expect(refreshCount).toBe(1);
+
+    // 冷却结束：放行一次新的刷新，成功后静默恢复——全程没有踢过登录。
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await expect(http.get("/protected")).resolves.toBe(true);
+    expect(refreshCount).toBe(2);
+    expect(session.onExpired).not.toHaveBeenCalled();
+    expect(session.getAccessToken()).toBe("fresh");
   });
 
   it("does not refresh again when a replay also returns 401", async () => {

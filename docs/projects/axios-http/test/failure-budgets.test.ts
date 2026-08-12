@@ -154,9 +154,9 @@ describe("refresh failure cooldown", () => {
       kind: "http",
       status: 500,
     });
-    // 冷却期内不得再打刷新端点，会话也不应被重复失效
+    // 冷却期内不得再打刷新端点；端点抖动不是凭证失效，会话必须原样保留（D-65）
     expect(scenario.refreshCount()).toBe(1);
-    expect(onExpired).toHaveBeenCalledTimes(1);
+    expect(onExpired).not.toHaveBeenCalled();
   });
 
   it("retries the refresh once the cooldown has elapsed", async () => {
