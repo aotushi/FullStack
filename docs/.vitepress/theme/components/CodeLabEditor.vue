@@ -3,12 +3,18 @@ import { onBeforeUnmount, onMounted, shallowRef, watch } from "vue";
 import { EditorView } from "@codemirror/view";
 import { vscodeEditorTheme, vscodeSyntaxHighlighting } from "../lab/vscodeTheme";
 
-const props = defineProps<{
-  code: string;
-  filePath: string;
-  busy: boolean;
-  hasChanges: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    code: string;
+    filePath: string;
+    busy: boolean;
+    hasChanges: boolean;
+    showToolbar?: boolean;
+  }>(),
+  {
+    showToolbar: true,
+  },
+);
 
 const emit = defineEmits<{
   copy: [];
@@ -88,7 +94,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="code-lab-editor">
-    <div class="code-lab-editor__bar">
+    <div v-if="showToolbar" class="code-lab-editor__bar">
       <div class="code-lab-editor__meta">
         <span class="code-lab-editor__path">{{ filePath }}</span>
         <span>{{ languageName(filePath) }}</span>

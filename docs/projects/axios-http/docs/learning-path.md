@@ -39,19 +39,21 @@
 ```text
 页面 / 状态管理
     ↓  只认领域概念
-src/api/modules/*.ts        业务 API 模块
+src/api/modules/*.ts        业务 API 模块，如 users.ts 的 createUser()
     ↓  http.get / http.post
 client.ts  request() → execute()      逻辑请求编排
     ↓
 Axios 请求拦截器链   Auth → RequestControl
+    （installAuth、installRequestControl 注册）
     ↓
                     网络
     ↓
 Axios 响应拦截器链   RequestControl → Envelope → Auth
+    （installRequestControl、installApiEnvelopeAdapter、installAuth 注册）
     ↓
 execute() 收尾：错误归一化、上下文、展示与上报
     ↓
-业务模块把 HTTP 错误翻译成领域错误
+业务模块把 HTTP 错误翻译成领域错误，如 409 → UserAlreadyExistsError
     ↓
 页面
 ```

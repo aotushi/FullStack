@@ -1,168 +1,234 @@
-# Axios 请求层
+# Axios 请求层：先看懂，再深入
 
-这是一套基于 Axios 的项目请求层封装。页面代码只调业务模块里的领域函数，剩下的事
-——类型化入口、逻辑请求生命周期、错误分类与展示、并发 401 单飞刷新、取消 /
-Loading / 重试、文件传输——由请求层内部分工完成。核心拆成两层：**通用 HTTP 核心**
-只依赖 HTTP 标准语义；**项目协议**（信封解包、错误文案、凭证读写）全部收进
-Adapter，换一个后端协议只动 `adapters/` 和装配入口。
+<script setup lang="ts">
+import AxiosFlowExplorer from "./components/axios-flow/AxiosFlowExplorer.vue";
+</script>
 
-全部代码来自仓库内一套可运行、带测试的工程，各阶段页文末内嵌的源码在构建时从真实
-文件直读，和测试跑的是同一份。
+这套方案整理自 `admin-backend-3/apps/page/src` 的真实前端代码。它要解决的不是“怎么发一个
+Axios 请求”，而是：**页面只说自己要什么数据，认证、响应解包、错误、重试、取消和会话同步
+由各自模块接力完成。**
 
-- 学习入口：[渐进式学习路径](./axios/learning-path.md)（导读 + 五个阶段分页）
-- 代码与设计基线：仓库内 `docs/projects/axios-http/`；某个决定为什么这样定、否决了
-  哪些替代方案，翻工程根目录的 `DESIGN.md`
+先记住一句话：
 
-## 分层与文件地图
+> 页面调用业务 API 函数；业务 API 调用 `http`；`http` 把后端响应处理成页面真正需要的数据。
+
+页面之所以看起来复杂，是因为原代码同时包含“业务分层”和“请求内部流程”。把这两条轴分开，
+整套封装就容易读了。
+
+## 先看完整流程
+
+下面不是概念示意图，而是按当前代码职责整理出的模块地图。第一次只看蓝绿主线；之后切到
+“401 刷新”或“失败与重试”，再点开节点看输入和输出。
+
+<AxiosFlowExplorer />
+
+## 30 秒建立心智模型
+
+一次普通的用户列表请求，调用关系只有四句：
+
+```ts
+// 1. 页面不碰 Axios，只使用查询状态
+const usersQuery = useUsersListQuery();
+
+// 2. query 指定真正取数据的业务函数
+query: getUsersApi;
+
+// 3. 业务函数声明方法、路径和返回类型
+export function getUsersApi() {
+  return http.get<AdminUserListItem[]>("/api/users/list");
+}
+
+// 4. 页面最终拿到 AdminUserListItem[]，不是 AxiosResponse，也不是后端信封
+```
+
+中间发生的事情虽然多，但可以压缩成六层：
+
+| 层         | 主要文件                                      | 只回答一个问题                                  |
+| ---------- | --------------------------------------------- | ----------------------------------------------- |
+| 页面       | `views/*.vue`                                 | 用户现在要做什么？                              |
+| 服务端状态 | `queries/*.ts`                                | 数据是否在加载、缓存何时失效？                  |
+| 业务 API   | `api/modules/*.ts`                            | 请求哪个接口，参数和结果是什么类型？            |
+| HTTP 门面  | `api/http/index.ts`                           | 当前项目使用哪一个客户端和哪套协议？            |
+| HTTP 核心  | `client.ts`、`request-control.ts`、`retry.ts` | 一次逻辑请求怎么开始、发送和收尾？              |
+| 项目适配器 | `adapters/*`、`session*.ts`                   | token、响应信封、错误文案和多标签页规则是什么？ |
+
+这六层不是为了“文件越多越专业”。它们让改动有固定落点：新增用户接口不会碰刷新状态机，
+修改后端信封也不会迫使所有页面一起改。
+
+## 正常请求是怎么回来的
+
+以 `http.get<AdminUserListItem[]>("/api/users/list")` 为例：
+
+1. `client.ts` 创建一个**逻辑请求**，登记开始时间、取消控制器和可选 Loading。
+2. 如果调用方显式开启重试，`retry.ts` 包住本次发送；写请求不会进入自动重试。
+3. Auth 请求拦截器读取内存 access token，写入 `Authorization`，并记录凭证代际。
+4. `request-control.ts` 记录一次**物理尝试**，组合取消信号，然后 Axios 发出请求。
+5. 响应回来后，Request Control 先清掉这次物理尝试留下的监听器和控制器。
+6. `adapters/envelope.ts` 校验 `{ success: true, data }`，把 `data` 放回响应。
+7. Auth 的成功分支原样放行；`client.ts` 取出 `response.data`。
+8. Promise 回到业务模块和 query，页面得到 `AdminUserListItem[]`。
+
+这里最重要的不是拦截器语法，而是两个概念：
+
+| 概念     | 含义                     | 例子                           |
+| -------- | ------------------------ | ------------------------------ |
+| 逻辑请求 | 调用方眼里的一次 Promise | 页面加载一次用户列表           |
+| 物理尝试 | 真正发送的一次 HTTP 请求 | 首次发送、退避重试、401 后重放 |
+
+一次逻辑请求可以包含多次物理尝试，所以 Loading 只开关一次，最终错误只通知一次，
+`attempts` 却能记录真实发送次数。
+
+## 401 为什么不会把页面代码弄乱
+
+业务请求收到 401 后，Auth 响应拦截器接管恢复过程：
+
+1. 先确认它是当前实例管理的请求，并且没有 `skipAuth`。
+2. 如果这个请求已经重放过一次，立即停止，防止无限循环。
+3. 如果别的请求已经刷新出更新一代凭证，直接使用新凭证重放。
+4. 否则进入 `refreshOnce()`；同一标签页的并发 401 共享同一个 `refreshPromise`。
+5. `adapters/auth.ts` 使用**独立 Axios 实例**调用 `/api/auth/refresh`。独立实例没有业务
+   拦截器，因此刷新接口自己的 401 不会再次触发刷新。
+6. 刷新成功后，把完整会话写入 `session.ts`，原请求带新 Bearer token 最多重放一次。
+7. `session-bridge.ts` 观察会话变化，通过 `session-sync.ts` 广播给其他标签页。
+
+失败时还有一条很关键的边界：
+
+- 刷新接口明确返回 401：refresh 会话已失效，结束当前会话。
+- 刷新接口网络错误、超时或 5xx：只是暂时无法刷新，保留会话并短暂熔断，避免请求风暴。
+- 刷新成功后原业务请求仍返回 401：新凭证也不被接受，结束会话，不再刷新。
+
+因此页面只等待原来的 Promise。它不需要排队并发请求，也不需要自己保存 token 或重发请求。
+
+## 拦截器顺序为什么容易看反
+
+`client.ts` 的安装顺序同时控制两个方向：
 
 ```text
-docs/projects/axios-http/            可运行工程：pnpm check = 类型检查 + 单测 + 浏览器测试
-├── DESIGN.md                        设计基线：全部决策与被否决的替代方案
-├── test/                            Vitest 单元与本地 HTTP 集成测试
-├── browser-tests/                   Playwright Chrome 测试
-└── src/api/
-    ├── http/                        通用核心——只依赖 HTTP 标准语义
-    │   ├── index.ts                 对外门面：创建并导出 http 的接入示例 + 类型出口
-    │   ├── client.ts                类型化入口 + execute() 逻辑请求生命周期 + 拦截器装配
-    │   ├── errors.ts                错误归一化：网络 / HTTP 状态 / 协议格式三类
-    │   ├── auth.ts                  并发 401 单飞刷新状态机：五组状态、代际与熔断
-    │   ├── request-control.ts       物理尝试计数：双层取消 + Loading 边界
-    │   ├── retry.ts                 安全读重试：总时间预算 + 退避抖动
-    │   ├── transfer.ts              文件传输：带凭证下载、读文件名、直链下载
-    │   └── adapters/                项目协议——换后端只动这里
-    │       ├── envelope.ts          信封解包 { code, message, data }
-    │       ├── error-presenter.ts   错误文案：错误分类到提示语的项目分支
-    │       └── auth.ts              凭证读写 + 调刷新接口
-    ├── session.ts                   会话状态（真实项目换成 Pinia/Zustand 切片）
-    └── modules/                     业务 API 模块：领域函数 + 领域错误（users.ts 示范）
+注册顺序：RequestControl → Envelope → Auth
+
+请求执行：Auth → RequestControl → 网络
+响应成功：网络 → RequestControl → Envelope → Auth
+响应失败：网络 → RequestControl → Auth
 ```
 
-验证命令与测试覆盖清单见[业务模块与端到端](./axios/modules-and-e2e.md)「验证资料」。
+原因有两条：
 
-### 改什么动哪里
+- Axios 的请求拦截器按注册的**逆序**执行，响应拦截器按注册的**顺序**执行。
+- Envelope 只注册成功响应处理器，不参与请求，也不处理失败响应。
 
-新需求先对号入座，绝大多数变更只落在一个文件：
+Auth 必须位于响应链最后。它在 401 后重放整个 config；如果后面还有 Envelope，重放结果可能
+被再次解包，最终被误判成协议格式错误。
 
-| 变更                               | 落点                                                                                              |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------- |
-| 新增业务接口                       | `modules/` 新文件，其余不动                                                                       |
-| 换信封字段、后端 200 + 业务码      | `adapters/envelope.ts`（下文三层适配）                                                            |
-| 改错误文案、接多语言               | `adapters/error-presenter.ts`                                                                     |
-| 换认证方案                         | `adapters/` 新认证 Adapter，在 `http/index.ts` 给工厂注入 `auth`（[认证与刷新](./axios/auth.md)） |
-| 接监控上报、全局错误提示、Loading  | `http/index.ts` 里给工厂传 `onReport` / `onError` / `onLoadingChange` 回调                        |
-| 新增横切能力（请求签名、灰度头等） | `http/` 新文件 + `client.ts` 一行装配                                                             |
+## 错误不是一句“请求失败”
 
-### 删减方向
+错误处理被拆成三段，每段只做一件事：
 
-三个采用层级（[学习路径](./axios/learning-path.md)「选择你需要的层级」）映射到物理
-文件，砍能力就是删文件加删装配行，核心结构不变：
+| 模块                          | 职责                                                                                 | 不做什么       |
+| ----------------------------- | ------------------------------------------------------------------------------------ | -------------- |
+| `errors.ts`                   | 归一化为 `http / network / timeout / cancel / configuration / unknown`，补安全上下文 | 不写用户文案   |
+| `adapters/error-presenter.ts` | 把稳定分类翻成用户能理解的提示；4xx 可采用服务端文案，5xx 用安全兜底                 | 不决定是否展示 |
+| `client.ts`                   | 决定是否调用 `onError` 和 `onReport`，最后把同一个错误抛回调用方                     | 不吞掉请求结果 |
 
-- **停在项目请求层**（大多数后台管理项目）：删 `auth.ts`、`adapters/auth.ts`、
-  `session.ts`、`request-control.ts`、`retry.ts`、`transfer.ts`，去掉 `client.ts`
-  里对应的拦截器安装和工厂选项。
-- **只要基础层**：整套封装都不需要——`axios.create()` 加 `baseURL`、`timeout`
-  就够，很多内部工具停在这里就是对的。
+分发规则也很明确：
 
-## 接口约定与协议立场
+- `cancel`：不提示，也不上报。
+- `errorMode: "silent"`：页面接管提示，但监控仍能收到错误。
+- Auth 已处理的会话错误：只上报，不叠加第二个全局提示。
+- 其他最终错误：展示、上报，并继续抛给 query 或页面。
 
-示例后端的成功响应统一套一层信封：
+重试发生在“最终通知”之前。只有 GET / HEAD / OPTIONS，且错误属于网络、超时或
+502/503/504，才可能在总时间预算内退避重试；POST / PUT / PATCH 即使显式传入配置也不
+自动重试。
+
+## 协议约定先确认
+
+当前项目不是任意后端都能直接套用，它依赖这些约定：
 
 ```ts
-export interface ApiEnvelope<Data> {
-  code: number;
-  message: string;
+// 2xx 成功
+interface ApiEnvelope<Data> {
+  success: true;
   data: Data;
 }
-```
 
-立场只有几条，但每条都影响整个封装的形状：
-
-- **HTTP 状态码是成功与否的唯一权威。** `code` 只是元数据，传输层不写
-  `if (code !== 0) throw`——那会让同一个失败出现两套并存的表达，重试、监控、网关
-  每一层都要猜该看哪一个。
-- 登录失效使用 HTTP `401`，不是 `200` 加业务错误码。
-- `204 No Content`、文件下载和第三方接口不套用信封。
-- Access Token 放内存；Refresh Token 走 `HttpOnly` Cookie，前端读不到。
-
-### 后端用 200 + 业务码表达失败怎么办
-
-按顺序考虑三层：
-
-1. **首选：推动后端用 HTTP 状态码表达失败。** 标准语义让重试、监控、网关、缓存全
-   链路不需要私有知识。
-2. **个别接口如此：在业务模块里翻译**（学习路径阶段八的做法），传输层不动。
-3. **整个后端如此、存量协议改不动：改写 `adapters/envelope.ts` 一个文件。**
-   「`code` 非 0 即失败」就是这一支后端的协议事实，而协议判定本来就属于协议
-   Adapter。改法和代价见[最小客户端](./axios/minimal-client.md)「整个后端都用
-   200 + 业务码怎么办」。
-
-## 默认能力与可选能力
-
-| 能力           | 状态           | 说明                                                                          |
-| -------------- | -------------- | ----------------------------------------------------------------------------- |
-| API 地址与超时 | 默认启用       | 工厂统一 `baseURL`、`timeout`，配置白名单拦住调用方按请求改回                 |
-| 请求凭证       | 默认启用       | 自动附 `Authorization`，401 单飞刷新后重放；`skipAuth: true` 按请求跳过       |
-| 数据剥壳       | 默认启用       | Envelope Adapter 拆 `{ code, message, data }`；`raw()` 拿完整响应             |
-| 统一错误       | 默认启用       | 归一化分类 + Presenter 文案 + 上报；`errorMode: "silent"` 只关展示不关上报    |
-| 外部取消信号   | 可选           | 按请求传 `signal`；`cancelAll()` 双层取消始终可用                             |
-| 全局 Loading   | 可选，默认关闭 | `showLoading: true` 按请求开启；按逻辑请求计数，只在 0↔1 边界回调             |
-| 自动重试       | 可选，默认关闭 | 仅安全读方法，写请求即使显式要求也不重试；带总时间预算与退避抖动              |
-| 文件传输       | 可选           | `fetchFile`/`saveFile` 带凭证下载并读文件名，`downloadDirect` 走 URL 签名直链 |
-| 重复请求取消   | 不做           | 归查询层（TanStack Query、pinia-colada 等）——它们持有查询身份                 |
-| 接口缓存       | 不做           | 同上；HTTP 层只看得到一次孤立传输                                             |
-
-## 不负责什么
-
-- **写请求防重复提交**：客户端取消挡不住已经落库的请求，必须由服务端幂等兜底。
-- **XSRF 头部**：凭证主体走内存 Bearer 头，跨域 Cookie 只暴露给刷新接口；防线在
-  服务端的同源与 Origin 校验，前端不再附带 XSRF 头。
-
-## 调用长什么样
-
-页面只认领域概念，业务模块负责 URL、类型和状态码翻译：
-
-```ts
-// src/api/modules/users.ts
-export async function createUser(input: CreateUserInput): Promise<User> {
-  try {
-    // silent 只关全局 Toast 展示，不关监控上报——409 要显示在表单字段旁边
-    return await http.post<User, CreateUserInput>("/users", input, {
-      errorMode: "silent",
-    });
-  } catch (error) {
-    if (error instanceof HttpError && error.status === 409) {
-      throw new UserAlreadyExistsError(error);
-    }
-    throw error;
-  }
+// 4xx / 5xx 失败
+interface ApiFailure {
+  error: string;
+  code?: string;
 }
 ```
 
-```ts
-// 页面
-try {
-  await createUser({ name: "Ada" });
-} catch (error) {
-  if (error instanceof UserAlreadyExistsError) {
-    setFieldError("name", "用户名已存在");
-  }
-}
-```
+- HTTP 状态码是成功或失败的权威；`2xx + success: false` 会被视为协议违约。
+- `204 No Content` 返回 `undefined`，不要求信封。
+- 文件下载调用 `raw()`，保留完整响应和 `Content-Disposition`，并跳过信封解包。
+- access token 只放内存；refresh 凭证由 HttpOnly Cookie 承载，前端不能读取。
+- 登录和退出用 `skipAuth: true` 表示不附 Bearer、不参与 401 自动刷新；这不等于禁止浏览器
+  携带 Cookie。
 
-## 采用前检查
+如果另一个后端使用 `code / message / data`，或用 `200 + 业务码` 表达失败，优先改
+`adapters/envelope.ts`，不要把协议判断散落到每个页面。
 
-把这套封装接进项目之前，逐项确认；任何一项对不上，先读对应页再动手：
+## 哪些能力属于哪一层
 
-| 检查项                                       | 对不上时看哪                                                  |
-| -------------------------------------------- | ------------------------------------------------------------- |
-| 后端用 HTTP 状态码表达失败，成功码已确认     | 上文「200 + 业务码」三层适配                                  |
-| 登录失效返回的 HTTP 状态是 `401`             | [认证与刷新](./axios/auth.md)「什么时候必须改契约」           |
-| 刷新接口与普通接口是否同一套信封/域名规则    | 刷新走独立裸实例、不套信封（[认证与刷新](./axios/auth.md)）   |
-| token 保存方式已定（内存 + HttpOnly Cookie） | 换方案看[认证与刷新](./axios/auth.md)「换一种认证方案会怎样」 |
-| 文件接口的返回形态已确认（响应体还是直链）   | [生命周期能力](./axios/lifecycle.md)「两条下载路径」          |
-| Loading、retry 等可选能力按需开启            | 默认关闭是有意的，接查询层时重试归上层                        |
-| 并发 401 的行为有自动化测试兜底              | `test/http-client.test.ts` 可直接当模板                       |
-| 上传/下载的取消与 `204` 场景已验证           | `test/protocol-and-utilities.test.ts`、`browser-tests/`       |
+| 能力                         | 归属                | 原因                                       |
+| ---------------------------- | ------------------- | ------------------------------------------ |
+| URL、方法、请求体与领域类型  | `api/modules/*`     | 它们属于某个业务资源                       |
+| Bearer 注入与 401 恢复       | HTTP Auth + Adapter | 所有受保护请求共享同一规则                 |
+| 响应信封                     | Envelope Adapter    | 它是当前后端的协议事实                     |
+| 取消、尝试次数、逻辑 Loading | HTTP Client         | 它们必须覆盖重试和重放                     |
+| 查询缓存、读取去重、失效重取 | Pinia Colada        | 查询层持有 query key 和数据新鲜度          |
+| 防止重复写入                 | 服务端幂等          | 客户端取消无法撤销已经落库的写操作         |
+| Toast 和监控接入             | 项目回调            | 核心只提供稳定错误，不绑定 UI 库和监控 SDK |
+
+## 改需求时去哪里
+
+| 需求                        | 首选落点                          |
+| --------------------------- | --------------------------------- |
+| 新增接口                    | `api/modules/` 新增或修改领域函数 |
+| 改后端成功信封              | `adapters/envelope.ts`            |
+| 改错误文案或接 i18n         | `adapters/error-presenter.ts`     |
+| 改 token / Cookie 方案      | `adapters/auth.ts` 与装配入口     |
+| 改 401 并发、熔断、重放规则 | `auth.ts`，并补认证测试           |
+| 接全局 Loading、Toast、监控 | `http/index.ts` 给客户端传回调    |
+| 改缓存或查询去重            | `queries/*`，不要塞进 Axios 核心  |
+| 新增上传下载能力            | `transfer.ts`                     |
+
+## 推荐阅读顺序
+
+不要从 `client.ts` 第一行一路读到底。按“先主线、后分支”阅读：
+
+1. `api/modules/users.ts`：先看页面需要怎样的业务函数。
+2. `api/http/index.ts`：确认实例在哪里创建、注入了哪些项目规则。
+3. `client.ts` 文件头、`HttpClient` 接口和方法别名：先忽略 `execute()` 细节。
+4. `adapters/envelope.ts`：看正常响应为什么能直接得到业务数据。
+5. `client.ts` 的 `execute()`：理解逻辑请求的开始、发送、失败与 finally。
+6. `errors.ts` 与 `error-presenter.ts`：理解稳定分类和用户文案为什么分开。
+7. `request-control.ts`、`retry.ts`、`transfer.ts`：分别学习独立能力。
+8. 最后读 `auth.ts`、`adapters/auth.ts`、`session.ts`、`session-bridge.ts` 和
+   `session-sync.ts`。
+
+这组文章已经按同样顺序拆开：
+
+1. [渐进式学习路径](./axios/learning-path.md)
+2. [最小客户端：实例、信封与类型化入口](./axios/minimal-client.md)
+3. [逻辑请求与错误](./axios/request-and-errors.md)
+4. [生命周期能力：取消、Loading、重试与文件](./axios/lifecycle.md)
+5. [认证与凭证刷新](./axios/auth.md)
+6. [业务模块与端到端](./axios/modules-and-e2e.md)
+
+## 不一定需要完整方案
+
+根据项目复杂度选到够用为止：
+
+| 层级       | 组成                                                            | 适合                                 |
+| ---------- | --------------------------------------------------------------- | ------------------------------------ |
+| 基础层     | `axios.create()` + `baseURL` + `timeout`                        | 接口少、无复杂登录态的内部工具       |
+| 项目请求层 | 基础层 + 信封 + 类型入口 + 错误分类 + 业务模块                  | 大多数后台管理项目                   |
+| 完整层     | 项目请求层 + 401 单飞 + 取消 + Loading + 重试 + 文件 + 会话同步 | 确实遇到这些并发与生命周期问题的项目 |
+
+配套的通用化、可运行示例位于仓库 `docs/projects/axios-http/`，包含源码、设计记录、单元测试、
+本地 HTTP 集成测试和浏览器测试。它用于验证机制；真实项目还会在装配入口接入自己的环境配置、
+Pinia、Element Plus 和接口模块。
 
 ## 参考
 

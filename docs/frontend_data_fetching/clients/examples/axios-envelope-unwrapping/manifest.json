@@ -1,0 +1,11 @@
+{
+  "id": "axios-envelope-unwrapping",
+  "title": "阶段三：抽出响应信封适配器",
+  "description": "保持 await 直接得到 User，把后端信封的处理从 HttpClient 提取为独立插件。",
+  "defaultFile": "src/envelope.ts",
+  "runnable": true,
+  "installable": true,
+  "scripts": {
+    "dev": "npm run dev"
+  }
+}

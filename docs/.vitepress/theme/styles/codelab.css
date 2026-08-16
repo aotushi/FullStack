@@ -24,6 +24,148 @@
   color: var(--code-lab-ink);
 }
 
+.code-lab--notebook {
+  overflow: hidden;
+  border-color: #303746;
+  border-radius: 12px;
+  background: #16191f;
+}
+
+.code-lab-notebook__workspace {
+  min-width: 0;
+  background: #1e1e1e;
+}
+
+.code-lab-notebook__toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 48px;
+  border-bottom: 1px solid var(--code-lab-border);
+  background: #16191f;
+}
+
+.code-lab-tabs {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.code-lab-tabs__scroller {
+  display: flex;
+  height: 100%;
+  overflow-x: auto;
+  scrollbar-color: #4a5568 transparent;
+  scrollbar-width: thin;
+}
+
+.code-lab-tabs__tab {
+  position: relative;
+  display: inline-flex;
+  min-width: max-content;
+  min-height: 48px;
+  gap: 2px;
+  align-items: center;
+  border: 0;
+  border-right: 1px solid #292f3a;
+  border-bottom: 2px solid transparent;
+  padding: 0 14px;
+  background: transparent;
+  color: #9ba5b5;
+  font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.code-lab-tabs__tab:hover {
+  background: #1d222b;
+  color: #e1e7f0;
+}
+
+.code-lab-tabs__tab:focus-visible,
+.code-lab-notebook__actions button:focus-visible,
+.code-lab-preview__menu summary:focus-visible,
+.code-lab-preview__menu button:focus-visible {
+  z-index: 1;
+  outline: 2px solid #68b7ff;
+  outline-offset: -2px;
+}
+
+.code-lab-tabs__tab--active {
+  border-bottom-color: #4d8dff;
+  background: #1e1e1e;
+  color: #f3f6fa;
+}
+
+.code-lab-tabs__folder {
+  color: #667184;
+}
+
+.code-lab-tabs__changed {
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: #69a1ff;
+}
+
+.code-lab-notebook__actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 8px;
+  border-left: 1px solid #292f3a;
+}
+
+.code-lab-notebook__connection {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 0 6px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.code-lab-notebook__connection-dot,
+.code-lab-preview__status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.code-lab-notebook__actions button {
+  min-height: 36px;
+  border: 1px solid #394252;
+  border-radius: 6px;
+  padding: 0 12px;
+  background: #222731;
+  color: #d9e0ea;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.code-lab-notebook__actions button:hover:not(:disabled) {
+  border-color: #647087;
+  background: #2a303b;
+}
+
+.code-lab-notebook__actions .code-lab-notebook__run {
+  min-width: 58px;
+  border-color: #4d8dff;
+  background: #376fd1;
+  color: #fff;
+  font-weight: 600;
+}
+
+.code-lab-notebook__actions .code-lab-notebook__run:hover:not(:disabled) {
+  border-color: #72a7ff;
+  background: #427ce0;
+}
+
+.code-lab-notebook__actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
 .code-lab__header {
   padding: 14px;
   border-bottom: 1px solid var(--code-lab-border);
@@ -188,6 +330,24 @@ h3.code-lab__title {
   font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
 }
 
+.code-lab--notebook .code-lab-editor {
+  border-right: 0;
+}
+
+.code-lab--notebook .code-lab-editor__host {
+  height: var(--code-lab-height);
+  min-height: 480px;
+}
+
+.code-lab--notebook .code-lab-editor__host .cm-editor {
+  font-size: 14px;
+}
+
+.code-lab--notebook .code-lab-editor__host .cm-content {
+  padding-top: 14px;
+  padding-bottom: 24px;
+}
+
 .code-lab-preview {
   min-width: 0;
   background: var(--code-lab-panel-2);
@@ -214,6 +374,125 @@ h3.code-lab__title {
 .code-lab-preview__empty p {
   margin: 0;
   color: var(--code-lab-ink);
+}
+
+.code-lab-preview--notebook {
+  min-width: 0;
+  border-top: 1px solid #303746;
+  background: #f7f8fa;
+  color: #1f2937;
+}
+
+.code-lab-preview--notebook .code-lab-preview__bar {
+  min-height: 48px;
+  padding: 0 14px 0 16px;
+  border-bottom-color: #303746;
+  background: #16191f;
+}
+
+.code-lab-preview__title {
+  color: #dce3ed;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.code-lab-preview__runtime,
+.code-lab-preview__status {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.code-lab-preview__status {
+  gap: 6px;
+  font-size: 11px;
+}
+
+.code-lab-preview__menu {
+  position: relative;
+  margin: 0;
+}
+
+.code-lab-preview__menu summary {
+  display: inline-grid;
+  min-width: 52px;
+  min-height: 34px;
+  margin: 0;
+  place-items: center;
+  border: 1px solid #394252;
+  border-radius: 6px;
+  background: #222731;
+  color: #d9e0ea;
+  cursor: pointer;
+  list-style: none;
+}
+
+.code-lab-preview__menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.code-lab-preview__menu[open] summary,
+.code-lab-preview__menu summary:hover {
+  border-color: #647087;
+  background: #2a303b;
+}
+
+.code-lab-preview__menu-panel {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  width: 132px;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid #3a4353;
+  border-radius: 8px;
+  background: #1e232c;
+  box-shadow: 0 12px 28px rgb(0 0 0 / 28%);
+}
+
+.code-lab-preview__menu-panel button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 5px;
+  padding: 0 10px;
+  background: transparent;
+  color: #d9e0ea;
+  text-align: left;
+  cursor: pointer;
+}
+
+.code-lab-preview__menu-panel button:hover:not(:disabled) {
+  background: #303746;
+}
+
+.code-lab-preview__menu-panel button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.code-lab-preview--notebook .code-lab-preview__frame {
+  display: block;
+  height: 420px;
+}
+
+.code-lab-preview--notebook .code-lab-preview__empty {
+  min-height: 280px;
+  color: #667085;
+}
+
+.code-lab-preview--notebook .code-lab-preview__empty p {
+  color: #1f2937;
+  font-weight: 600;
+}
+
+.code-lab-preview--notebook .code-lab-preview__empty code {
+  border: 1px solid #d7dce5;
+  border-radius: 6px;
+  padding: 5px 9px;
+  background: #eef1f5;
+  color: #364152;
 }
 
 .code-lab-actions {
@@ -264,7 +543,7 @@ h3.code-lab__title {
     min-width: 420px;
   }
 
-  .code-lab-preview {
+  .code-lab__body > .code-lab-preview {
     display: none;
   }
 }
@@ -289,5 +568,75 @@ h3.code-lab__title {
   .code-lab__body--tree-collapsed {
     grid-template-columns: 1fr;
     min-width: 0;
+  }
+
+  .code-lab--notebook {
+    margin-right: -8px;
+    margin-left: -8px;
+    border-radius: 10px;
+  }
+
+  .code-lab-notebook__toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .code-lab-tabs {
+    border-bottom: 1px solid #292f3a;
+  }
+
+  .code-lab-tabs__tab {
+    min-height: 44px;
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .code-lab-notebook__actions {
+    min-width: 0;
+    min-height: 52px;
+    padding: 6px 8px;
+    border-left: 0;
+  }
+
+  .code-lab-notebook__connection {
+    min-width: 0;
+    margin-right: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .code-lab-notebook__actions button {
+    min-height: 40px;
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .code-lab--notebook .code-lab-editor__host {
+    height: min(var(--code-lab-height), 68vh);
+    min-height: 440px;
+  }
+
+  .code-lab-preview--notebook .code-lab-preview__frame {
+    height: 360px;
+  }
+}
+
+@media (max-width: 420px) {
+  .code-lab-notebook__connection {
+    width: 12px;
+    padding: 0 3px;
+    color: transparent;
+  }
+
+  .code-lab-notebook__connection-dot {
+    flex: 0 0 auto;
+    color: inherit;
+  }
+
+  .code-lab-notebook__connection.is-online .code-lab-notebook__connection-dot {
+    color: var(--code-lab-accent);
+  }
+
+  .code-lab-notebook__connection.is-offline .code-lab-notebook__connection-dot {
+    color: #f2a65a;
   }
 }

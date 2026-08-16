@@ -1,0 +1,11 @@
+{
+  "id": "axios-minimal-instance",
+  "title": "阶段一：Axios 实例与 AxiosResponse",
+  "description": "请求统一的响应信封，观察 AxiosResponse、ApiEnvelope 与 User 三层结构。",
+  "defaultFile": "src/http.ts",
+  "runnable": true,
+  "installable": true,
+  "scripts": {
+    "dev": "npm run dev"
+  }
+}
