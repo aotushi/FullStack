@@ -1,0 +1,11 @@
+{
+  "id": "axios-config-boundary",
+  "title": "阶段三进阶：增加配置边界",
+  "description": "在阶段三的响应适配器和直接返回 User 之上，增加固定配置与请求白名单。",
+  "defaultFile": "src/http.ts",
+  "runnable": true,
+  "installable": true,
+  "scripts": {
+    "dev": "npm run dev"
+  }
+}

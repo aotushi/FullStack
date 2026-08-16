@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, shallowRef } from "vue";
 import CodeLabEditor from "./CodeLabEditor.vue";
+import CodeLabFileTabs from "./CodeLabFileTabs.vue";
 import CodeLabFileTree from "./CodeLabFileTree.vue";
 import CodeLabPreview from "./CodeLabPreview.vue";
 import { loadStaticLab } from "../lab/projects";
@@ -18,10 +19,12 @@ const props = withDefaults(
   defineProps<{
     project: string;
     defaultFile?: string;
+    layout?: "workbench" | "notebook";
     height?: string;
   }>(),
   {
     height: "640px",
+    layout: "workbench",
   },
 );
 
@@ -44,8 +47,10 @@ let autoRunAttempted = false;
 const manifest = computed(() => staticProject?.manifest);
 const fileNames = computed(() => Object.keys(state.files).sort());
 const activeCode = computed(() => state.files[state.activeFile] ?? "");
-const hasChanges = computed(() => changedFiles.value.size > 0);
+const changedFileNames = computed(() => Array.from(changedFiles.value));
+const currentFileChanged = computed(() => changedFiles.value.has(state.activeFile));
 const canRun = computed(() => Boolean(manifest.value?.runnable));
+const isNotebook = computed(() => props.layout === "notebook");
 
 function setActiveFile(path: string) {
   state.activeFile = path;
@@ -109,6 +114,15 @@ function startReconnectPolling() {
   }, 2500);
 }
 
+async function saveChangedFiles(filePaths: string[]) {
+  for (const filePath of filePaths) {
+    await saveLocalFile(props.project, filePath, state.files[filePath] ?? "");
+    const next = new Set(changedFiles.value);
+    next.delete(filePath);
+    changedFiles.value = next;
+  }
+}
+
 async function saveCurrentFile() {
   if (!state.activeFile) return;
 
@@ -120,10 +134,7 @@ async function saveCurrentFile() {
 
   state.busy = true;
   try {
-    await saveLocalFile(props.project, state.activeFile, activeCode.value);
-    const next = new Set(changedFiles.value);
-    next.delete(state.activeFile);
-    changedFiles.value = next;
+    await saveChangedFiles([state.activeFile]);
     state.status = "Saved to lab files";
   } catch (error) {
     state.status = error instanceof Error ? error.message : String(error);
@@ -132,14 +143,31 @@ async function saveCurrentFile() {
   }
 }
 
-function resetCurrentFile() {
+async function resetCurrentFile() {
   if (!staticProject || !state.activeFile) return;
-  const original = staticProject.files[state.activeFile];
+  const filePath = state.activeFile;
+  const original = staticProject.files[filePath];
   if (original === undefined) return;
-  state.files[state.activeFile] = original;
-  window.localStorage.removeItem(storageKey(state.activeFile));
+  state.files[filePath] = original;
+  window.localStorage.removeItem(storageKey(filePath));
+
+  if (state.localAvailable) {
+    state.busy = true;
+    try {
+      await saveLocalFile(props.project, filePath, original);
+    } catch (error) {
+      const next = new Set(changedFiles.value);
+      next.add(filePath);
+      changedFiles.value = next;
+      state.status = error instanceof Error ? error.message : String(error);
+      state.busy = false;
+      return;
+    }
+    state.busy = false;
+  }
+
   const next = new Set(changedFiles.value);
-  next.delete(state.activeFile);
+  next.delete(filePath);
   changedFiles.value = next;
   state.status = "Reset current file";
 }
@@ -167,6 +195,10 @@ async function runProject() {
   state.busy = true;
   try {
     if (!state.localAvailable) throw new Error("Start `npm run labs:server` first.");
+    if (changedFiles.value.size > 0) {
+      state.status = "Saving changes";
+      await saveChangedFiles(Array.from(changedFiles.value));
+    }
     const result = await runLocalLab(props.project);
     state.previewUrl = result.url;
     state.status = `Running at ${result.url}`;
@@ -219,7 +251,75 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="code-lab" :style="{ '--code-lab-height': height }">
+  <section
+    v-if="isNotebook"
+    class="code-lab code-lab--notebook"
+    :style="{ '--code-lab-height': height }"
+  >
+    <div class="code-lab-notebook__workspace">
+      <header class="code-lab-notebook__toolbar">
+        <CodeLabFileTabs
+          :active-file="state.activeFile"
+          :changed-files="changedFileNames"
+          :files="fileNames"
+          @select="setActiveFile"
+        />
+        <div class="code-lab-notebook__actions" aria-label="代码操作">
+          <span
+            class="code-lab-notebook__connection"
+            :class="state.localAvailable ? 'is-online' : 'is-offline'"
+          >
+            <span class="code-lab-notebook__connection-dot" aria-hidden="true" />
+            {{ state.localAvailable ? (state.previewUrl ? "运行中" : "已连接") : "本地服务未连接" }}
+          </span>
+          <button type="button" :disabled="state.busy" @click="copyCurrentFile">复制</button>
+          <button
+            type="button"
+            :disabled="state.busy || !currentFileChanged"
+            @click="resetCurrentFile"
+          >
+            重置
+          </button>
+          <button
+            class="code-lab-notebook__run"
+            type="button"
+            :disabled="state.busy || !canRun || !state.localAvailable"
+            @click="runProject"
+          >
+            {{ state.busy ? "处理中" : "运行" }}
+          </button>
+        </div>
+      </header>
+
+      <CodeLabEditor
+        :key="state.activeFile"
+        :busy="state.busy"
+        :code="activeCode"
+        :file-path="state.activeFile"
+        :has-changes="currentFileChanged"
+        :show-toolbar="false"
+        @copy="copyCurrentFile"
+        @reset="resetCurrentFile"
+        @save="saveCurrentFile"
+        @update:code="updateCode"
+      />
+    </div>
+
+    <CodeLabPreview
+      :busy="state.busy"
+      :can-run="canRun"
+      layout="notebook"
+      :local-available="state.localAvailable"
+      :preview-url="state.previewUrl"
+      :status="state.status"
+      @install="installDependencies"
+      @refresh="refreshStatus"
+      @run="runProject"
+      @stop="stopProject"
+    />
+  </section>
+
+  <section v-else class="code-lab" :style="{ '--code-lab-height': height }">
     <header class="code-lab__header">
       <p class="code-lab__eyebrow">CodeLab</p>
       <h3 class="code-lab__title">{{ manifest?.title ?? project }}</h3>
@@ -244,7 +344,7 @@ onBeforeUnmount(() => {
         :busy="state.busy"
         :code="activeCode"
         :file-path="state.activeFile"
-        :has-changes="hasChanges"
+        :has-changes="currentFileChanged"
         @copy="copyCurrentFile"
         @reset="resetCurrentFile"
         @save="saveCurrentFile"

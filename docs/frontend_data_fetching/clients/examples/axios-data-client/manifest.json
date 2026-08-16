@@ -1,0 +1,11 @@
+{
+  "id": "axios-data-client",
+  "title": "阶段二：直接返回业务数据",
+  "description": "用最小 HttpClient 收起 AxiosResponse 和响应信封，让 await 直接得到 User。",
+  "defaultFile": "src/http.ts",
+  "runnable": true,
+  "installable": true,
+  "scripts": {
+    "dev": "npm run dev"
+  }
+}

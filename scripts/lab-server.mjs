@@ -12,6 +12,7 @@ const legacyLabsRoot = path.join(docsRoot, "labs");
 const apiPort = Number(process.env.LABS_PORT || 4180);
 const previewBasePort = Number(process.env.LABS_PREVIEW_PORT || 5190);
 const runningLabs = new Map();
+const startingLabs = new Map();
 const reservedPorts = new Set();
 
 function sendJson(res, status, payload) {
@@ -196,15 +197,10 @@ async function ensureLabDependencies(labId) {
   }
 }
 
-async function runLab(labId) {
+async function startLab(labId) {
   const cwd = getFilesDir(labId);
   if (!existsSync(path.join(cwd, "package.json"))) {
     throw new Error("This lab does not contain a package.json.");
-  }
-
-  const current = runningLabs.get(labId);
-  if (current && !current.process.killed) {
-    return current;
   }
 
   await ensureLabDependencies(labId);
@@ -246,10 +242,60 @@ async function runLab(labId) {
   return state;
 }
 
-function stopLab(labId) {
+async function runLab(labId) {
+  const current = runningLabs.get(labId);
+  if (current && current.exitCode === undefined) {
+    return current;
+  }
+
+  const starting = startingLabs.get(labId);
+  if (starting) return starting;
+
+  const start = startLab(labId);
+  startingLabs.set(labId, start);
+
+  try {
+    return await start;
+  } finally {
+    if (startingLabs.get(labId) === start) {
+      startingLabs.delete(labId);
+    }
+  }
+}
+
+function terminateProcessTree(child) {
+  return new Promise((resolve) => {
+    if (!child.pid || child.exitCode !== null) {
+      resolve();
+      return;
+    }
+
+    if (process.platform === "win32") {
+      const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+        windowsHide: true,
+        stdio: "ignore",
+      });
+      killer.once("error", () => {
+        child.kill();
+        resolve();
+      });
+      killer.once("exit", resolve);
+      return;
+    }
+
+    child.once("exit", resolve);
+    child.kill("SIGTERM");
+  });
+}
+
+async function stopLab(labId) {
+  const starting = startingLabs.get(labId);
+  if (starting) await starting;
+
   const current = runningLabs.get(labId);
   if (!current) return false;
-  current.process.kill();
+
+  await terminateProcessTree(current.process);
   reservedPorts.delete(current.port);
   runningLabs.delete(labId);
   return true;
@@ -315,7 +361,7 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && parts[3] === "stop") {
-      sendJson(res, 200, { ok: true, stopped: stopLab(labId) });
+      sendJson(res, 200, { ok: true, stopped: await stopLab(labId) });
       return;
     }
 
@@ -340,9 +386,7 @@ server.listen(apiPort, "127.0.0.1", () => {
   console.log(`Local lab server: http://127.0.0.1:${apiPort}`);
 });
 
-process.on("SIGINT", () => {
-  for (const labId of runningLabs.keys()) {
-    stopLab(labId);
-  }
+process.on("SIGINT", async () => {
+  await Promise.all(Array.from(runningLabs.keys(), (labId) => stopLab(labId)));
   server.close(() => process.exit(0));
 });
