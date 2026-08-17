@@ -11,13 +11,27 @@ export interface ApiEnvelope<Data> {
   data: Data;
 }
 
+function unwrapApiEnvelope<Data>(body: unknown): Data {
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("code" in body) ||
+    !("message" in body) ||
+    !("data" in body)
+  ) {
+    throw new Error("响应格式错误：期望 { code, message, data }，请检查接口或 Mock 是否生效。");
+  }
+
+  return (body as ApiEnvelope<Data>).data;
+}
+
 // 新增
 class HttpClient {
   constructor(private readonly instance: AxiosInstance) {}
 
   async request<Result>(config: AxiosRequestConfig): Promise<Result> {
-    const response = await this.instance.request<ApiEnvelope<Result>>(config);
-    return response.data.data;
+    const response = await this.instance.request<unknown>(config);
+    return unwrapApiEnvelope<Result>(response.data);
   }
 
   get<Result>(url: string, config?: AxiosRequestConfig) {

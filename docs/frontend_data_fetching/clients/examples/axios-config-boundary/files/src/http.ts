@@ -38,13 +38,17 @@ export interface CreateHttpClientOptions {
 
 function createAxiosDefaults(options: CreateHttpClientOptions): CreateAxiosDefaults {
   return {
+    // 所有业务请求共享同一个后端入口。
     baseURL: options.baseURL,
+
+    // 公共默认超时；单次请求仍可通过白名单覆盖。
     timeout: options.timeout ?? 10_000,
+
+    // 绝对 URL 不能直接替换 baseURL；真正的 URL 校验在 execute() 中完成。
     allowAbsoluteUrls: false,
+
+    // 跨站 Cookie 策略由客户端统一决定，不允许页面按请求修改。
     withCredentials: options.withCredentials ?? false,
-    transitional: {
-      clarifyTimeoutError: true,
-    },
   };
 }
 

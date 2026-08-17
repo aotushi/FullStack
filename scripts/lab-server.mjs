@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { createHash } from "node:crypto";
 import net from "node:net";
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
@@ -197,6 +198,31 @@ async function ensureLabDependencies(labId) {
   }
 }
 
+async function getLabRuntimeSignature(labId) {
+  const cwd = getFilesDir(labId);
+  const fileNames = (await readdir(cwd))
+    .filter(
+      (fileName) =>
+        fileName === "package.json" ||
+        fileName === "package-lock.json" ||
+        fileName === "pnpm-lock.yaml" ||
+        fileName === "yarn.lock" ||
+        fileName.startsWith(".env") ||
+        /^tsconfig(?:\..+)?\.json$/.test(fileName) ||
+        /^vite\.config\.[cm]?[jt]s$/.test(fileName),
+    )
+    .sort();
+
+  const signature = createHash("sha256");
+  for (const fileName of fileNames) {
+    signature.update(fileName);
+    signature.update("\0");
+    signature.update(await readFile(path.join(cwd, fileName)));
+    signature.update("\0");
+  }
+  return signature.digest("hex");
+}
+
 async function startLab(labId) {
   const cwd = getFilesDir(labId);
   if (!existsSync(path.join(cwd, "package.json"))) {
@@ -204,6 +230,7 @@ async function startLab(labId) {
   }
 
   await ensureLabDependencies(labId);
+  const runtimeSignature = await getLabRuntimeSignature(labId);
 
   const port = await findAvailablePort(previewBasePort);
   const child = spawn(
@@ -223,6 +250,7 @@ async function startLab(labId) {
     url: `http://127.0.0.1:${port}/`,
     logs: "",
     startedAt: Date.now(),
+    runtimeSignature,
   };
 
   child.stdout.on("data", (chunk) => {
@@ -242,16 +270,22 @@ async function startLab(labId) {
   return state;
 }
 
-async function runLab(labId) {
+async function getOrStartLab(labId) {
   const current = runningLabs.get(labId);
   if (current && current.exitCode === undefined) {
-    return current;
+    const runtimeSignature = await getLabRuntimeSignature(labId);
+    if (current.runtimeSignature === runtimeSignature) return current;
+    await stopRunningLab(labId);
   }
 
+  return startLab(labId);
+}
+
+async function runLab(labId) {
   const starting = startingLabs.get(labId);
   if (starting) return starting;
 
-  const start = startLab(labId);
+  const start = getOrStartLab(labId);
   startingLabs.set(labId, start);
 
   try {
@@ -292,6 +326,10 @@ async function stopLab(labId) {
   const starting = startingLabs.get(labId);
   if (starting) await starting;
 
+  return stopRunningLab(labId);
+}
+
+async function stopRunningLab(labId) {
   const current = runningLabs.get(labId);
   if (!current) return false;
 
@@ -346,6 +384,11 @@ const server = createServer(async (req, res) => {
 
     if (req.method === "POST" && parts[3] === "install") {
       const result = await installLab(labId);
+      const current = runningLabs.get(labId);
+      if (current && current.exitCode === undefined) {
+        // node_modules 可能变化而锁文件内容不变；确保下一次“运行”仍会启动新进程。
+        current.runtimeSignature = undefined;
+      }
       sendJson(res, result.code === 0 ? 200 : 500, {
         ok: result.code === 0,
         code: result.code,
