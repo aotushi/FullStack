@@ -12,6 +12,9 @@ if (false) {
   // @ts-expect-error baseURL 只能在创建客户端时确定。
   http.get<User>("/users/1", { baseURL: "https://other.example" });
 
+  // @ts-expect-error 跨站 Cookie 策略只能在创建客户端时确定。
+  http.get<User>("/users/1", { withCredentials: true });
+
   // @ts-expect-error 单次请求不能替换 Axios 传输层。
   http.get<User>("/users/1", { adapter: () => Promise.reject(new Error()) });
 

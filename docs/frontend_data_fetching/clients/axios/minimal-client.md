@@ -89,12 +89,26 @@ async function loadUser() {
 ```ts
 import axios, { type AxiosInstance, type AxiosRequestConfig } from "axios";
 
+function unwrapApiEnvelope<Data>(body: unknown): Data {
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("code" in body) ||
+    !("message" in body) ||
+    !("data" in body)
+  ) {
+    throw new Error("响应格式错误：期望 { code, message, data }，请检查接口或 Mock 是否生效。");
+  }
+
+  return (body as ApiEnvelope<Data>).data;
+}
+
 class HttpClient {
   constructor(private readonly instance: AxiosInstance) {}
 
   async request<Result>(config: AxiosRequestConfig): Promise<Result> {
-    const response = await this.instance.request<ApiEnvelope<Result>>(config);
-    return response.data.data;
+    const response = await this.instance.request<unknown>(config);
+    return unwrapApiEnvelope<Result>(response.data);
   }
 
   get<Result>(url: string, config?: AxiosRequestConfig) {
@@ -109,6 +123,9 @@ const transport = axios.create({
 
 export const http = new HttpClient(transport);
 ```
+
+Axios 泛型不能检查服务器实际返回了什么，因此拆包前先检查信封结构；接口意外返回 HTML
+或其它格式时会直接报错，不会让 `undefined` 冒充 `User`。
 
 页面现在直接声明并取得业务数据：
 
@@ -174,10 +191,23 @@ export interface ApiEnvelope<Data> {
   data: Data;
 }
 
+function unwrapApiEnvelope<Data>(body: unknown): Data {
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("code" in body) ||
+    !("message" in body) ||
+    !("data" in body)
+  ) {
+    throw new Error("响应格式错误：期望 { code, message, data }，请检查接口或 Mock 是否生效。");
+  }
+
+  return (body as ApiEnvelope<Data>).data;
+}
+
 export function installApiEnvelopeAdapter(instance: AxiosInstance) {
   instance.interceptors.response.use((response) => {
-    const envelope = response.data as ApiEnvelope<unknown>;
-    response.data = envelope.data;
+    response.data = unwrapApiEnvelope(response.data);
     return response;
   });
 }
@@ -229,8 +259,15 @@ interface ApiEnvelope<Data> {
   result: Data;
 }
 
-const envelope = response.data as ApiEnvelope<unknown>;
-response.data = envelope.result;
+function unwrapApiEnvelope<Data>(body: unknown): Data {
+  if (typeof body !== "object" || body === null || !("ok" in body) || !("result" in body)) {
+    throw new Error("响应格式错误：期望 { ok, result }。");
+  }
+
+  return (body as ApiEnvelope<Data>).result;
+}
+
+response.data = unwrapApiEnvelope(response.data);
 ```
 
 `HttpClient` 仍然返回 `response.data`，页面仍然使用 `await http.get<User>()`。阶段三示例的
@@ -258,9 +295,9 @@ response.data = envelope.result;
 
 ### 从练习版到完整实现
 
-练习版先只覆盖普通 JSON 成功响应。[本页末尾的完整实现](#本页源码)还补了三条生产边界：
-信封结构不合法时抛出明确错误；`204` 不解包；调用方需要原始响应时跳过解包。这些是
-主流程成立后的加固，不需要和第一次理解拦截器同时记住。
+练习版已经做了最小信封检查。[本页末尾的完整实现](#本页源码)再补三条生产边界：校验
+字段类型并区分 `data: null` 与缺少 `data`；`204` 不解包；调用方需要原始响应时跳过
+解包。这些加固不改变页面的调用方式。
 
 ### 阶段三进阶：增加配置边界
 
@@ -326,7 +363,8 @@ get<Result>(url: string, config?: HttpRequestConfig) {
 
 #### 新增二：把固定配置收进工厂
 
-阶段三直接调用 `axios.create()`；进阶版把同一段创建过程收进工厂：
+阶段三直接调用 `axios.create()`；进阶版把实例创建收进工厂，并加入原封装中的两项固定
+策略：绝对地址处理和跨站 Cookie 策略。
 
 ```ts
 interface CreateHttpClientOptions {
@@ -337,11 +375,17 @@ interface CreateHttpClientOptions {
 
 function createAxiosDefaults(options: CreateHttpClientOptions): CreateAxiosDefaults {
   return {
+    // 所有业务请求共享同一个后端入口。
     baseURL: options.baseURL,
+
+    // 公共默认超时；单次请求仍可通过白名单覆盖。
     timeout: options.timeout ?? 10_000,
+
+    // 绝对 URL 不能直接替换 baseURL；真正的 URL 校验在 execute() 中完成。
     allowAbsoluteUrls: false,
+
+    // 跨站 Cookie 策略由客户端统一决定，不允许页面按请求修改。
     withCredentials: options.withCredentials ?? false,
-    transitional: { clarifyTimeoutError: true },
   };
 }
 
@@ -375,6 +419,9 @@ const user = await http.get<User>("/users/1", {
 `AuthBehavior`、`ErrorBehavior`、`LoadingBehavior` 和 `RetryBehavior`；这里暂时不引用
 尚未学习的能力。
 
+原封装还设置了 `transitional.clarifyTimeoutError`，用于让后续错误分类更容易区分超时。
+它不会影响当前阶段的成功请求，因此留到[错误处理阶段](./request-and-errors.md)再加入。
+
 白名单只能限制配置对象，不能判断 `get()` 收到的 URL 字符串是不是绝对地址。原封装还
 会在 `execute()` 中拒绝绝对业务 URL，这项运行时检查随[下一页](./request-and-errors.md)
 的请求主流程再加入。
@@ -391,14 +438,3 @@ const user = await http.get<User>("/users/1", {
 这个 CodeLab 是阶段三代码加上上述两处增量。`src/envelope.ts` 与阶段三相同；
 `src/typecheck.ts` 验证白名单内的配置可以使用，而 `baseURL`、`adapter` 和
 `transformResponse` 会被 TypeScript 拒绝。
-
----
-
-## 本页源码
-
-上面的四个 CodeLab 是为了逐步学习而缩小的版本。下面的信封 Adapter 从
-`docs/projects/axios-http/` 的原封装源码直读；进阶示例中的白名单和固定配置也来自同一
-份 `client.ts`。生产版的 `request()/raw()/execute()` 会在
-[下一页](./request-and-errors.md)继续展开。
-
-<<< @/projects/axios-http/src/api/http/adapters/envelope.ts [http/adapters/envelope.ts]

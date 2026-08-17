@@ -6,10 +6,23 @@ export interface ApiEnvelope<Data> {
   data: Data;
 }
 
+function unwrapApiEnvelope<Data>(body: unknown): Data {
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("code" in body) ||
+    !("message" in body) ||
+    !("data" in body)
+  ) {
+    throw new Error("响应格式错误：期望 { code, message, data }，请检查接口或 Mock 是否生效。");
+  }
+
+  return (body as ApiEnvelope<Data>).data;
+}
+
 export function installApiEnvelopeAdapter(instance: AxiosInstance) {
   instance.interceptors.response.use((response) => {
-    const envelope = response.data as ApiEnvelope<unknown>;
-    response.data = envelope.data;
+    response.data = unwrapApiEnvelope(response.data);
     return response;
   });
 }
@@ -22,6 +35,13 @@ interface ApiEnvelope<Data> {
   result: Data;
 }
 
-const envelope = response.data as ApiEnvelope<unknown>;
-response.data = envelope.result;
+function unwrapApiEnvelope<Data>(body: unknown): Data {
+  if (typeof body !== "object" || body === null || !("ok" in body) || !("result" in body)) {
+    throw new Error("响应格式错误：期望 { ok, result }。");
+  }
+
+  return (body as ApiEnvelope<Data>).result;
+}
+
+response.data = unwrapApiEnvelope(response.data);
 */
