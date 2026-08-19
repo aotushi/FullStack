@@ -148,37 +148,44 @@ Adapter 中；更换后端协议时，修改 Adapter，不修改页面和客户�
 阶段三代码上增加固定配置和单次请求白名单。
 [查看响应协议的完整实现](./minimal-client.md)。
 
-## 4. 让失败走同一个出口
+## 4. 集成统一错误出口
 
-网络断开、超时、HTTP 失败和响应格式错误不能让页面分别猜测。`request()` 因此进入
-统一的 `execute()`：
+阶段三没有 `catch`。成功时返回 `response.data`；失败时，HTTP、超时和断网会把
+`AxiosError` 原样抛给页面，响应格式错误则由 Adapter 抛出普通 `Error`。页面虽然能
+捕获错误，却必须认识多种结构。
+
+阶段四先展示完整失败主线，让读者知道最终请求如何执行；随后再按 catch 中的
+`normalize → notify → throw` 拆解错误分类、固定文案、提示与上报、回调隔离和 4xx 候选
+提示，最后回到同一个 `execute()` 验证组合结果：
 
 ```ts
 class HttpClient {
   request<Result>(config: HttpRequestConfig): Promise<Result> {
-    return this.execute(config, (response) => response.data as Result);
+    return this.execute<Result>(config);
   }
 
-  private async execute<Result>(
-    config: HttpRequestConfig,
-    select: (response: AxiosResponse) => Result,
-  ): Promise<Result> {
-    try {
-      const response = await this.instance.request(config);
-      return select(response);
-    } catch (cause) {
-      const error =
-        cause instanceof ApiEnvelopeFormatError ? cause : await normalizeHttpError(cause);
+  private async execute<Result>(config: HttpRequestConfig): Promise<Result> {
+    const { errorMode = "global", ...axiosConfig } = config;
 
-      this.notifyFailure(error, config.errorMode === "silent", false);
+    try {
+      const response = await this.instance.request<Result>(axiosConfig);
+      return response.data;
+    } catch (cause) {
+      const error = normalizeRequestError(cause, {
+        readErrorMessage: readApiErrorMessage,
+      });
+
+      this.notifyFailure(error, errorMode);
       throw error;
     }
   }
 }
 ```
 
-客户端负责把失败整理成稳定的错误对象，但不会吞掉错误。页面需要局部处理时仍然使用
-普通的 `try/catch`：
+阶段三的配置边界和响应适配器没有被替换，只是在同一条请求路径上增加错误整理。先根据
+`kind` 和 `status` 建立固定安全文案，最后再让项目 Adapter 从 4xx 响应中提供可选的
+`presentationHint`。它没有覆盖技术性的 `Error.message`：前者是候选用户提示，后者是稳定
+诊断信息。客户端不会吞掉错误，页面需要局部处理时仍然使用普通的 `try/catch`：
 
 ```ts
 async function loadUser(userId: string) {
@@ -196,73 +203,66 @@ async function loadUser(userId: string) {
 
 ## 5. 把一次请求的收尾集中起来
 
-当项目需要 Loading、取消或重试时，它们都必须覆盖同一次 `loadUser()`。继续扩展
-`execute()`，而不是在页面外再套几层函数：
+先把一次请求的开始与结束放进同一个 `execute()`。这一阶段只加入 Loading，不提前展开
+取消和重试：
 
 ```ts
-private async execute<Result>(
-  config: HttpRequestConfig,
-  select: (response: AxiosResponse) => Result,
-): Promise<Result> {
-  const controller = new AbortController();
-  const combined = config.signal
-    ? combineAbortSignals([config.signal, controller.signal])
-    : { signal: controller.signal, dispose: () => {} };
-  const showLoading = config.showLoading ?? false;
-
-  this.logicalRequestControllers.add(controller);
+private async execute<Result>(config: HttpRequestConfig): Promise<Result> {
+  const { errorMode = "global", showLoading = false, ...axiosConfig } = config;
   if (showLoading) this.startLoading();
 
   try {
-    const send = async () => {
-      const response = await this.instance.request({
-        ...config,
-        signal: combined.signal,
+    try {
+      const response = await this.instance.request<Result>(axiosConfig);
+      return response.data;
+    } catch (cause) {
+      const error = normalizeRequestError(cause, {
+        readErrorMessage: readApiErrorMessage,
       });
-      return select(response);
-    };
-
-    const method = (config.method ?? "get").toLowerCase();
-    const shouldRetry =
-      config.retry && ["get", "head", "options"].includes(method);
-
-    return shouldRetry
-      ? await retry(send, {
-          retries: config.retry.retries,
-          baseDelay: config.retry.baseDelayMs,
-          totalTimeoutMs: config.retry.totalTimeoutMs,
-          signal: combined.signal,
-        })
-      : await send();
+      this.notifyFailure(error, errorMode);
+      throw error;
+    }
   } finally {
     if (showLoading) this.stopLoading();
-    combined.dispose();
-    this.logicalRequestControllers.delete(controller);
   }
 }
 ```
 
-上一步的错误归一化仍然包在这段发送逻辑外层，这里只突出新加入的生命周期。
+页面只多声明这一次请求是否需要 Loading：
 
-页面只声明这一次请求需要什么：
+```ts
+async function loadUser(userId: string) {
+  return http.get<User>(`/users/${userId}`, {
+    showLoading: true,
+  });
+}
+```
+
+成功和失败都会经过 `finally`。并发请求使用计数器，只在第一个请求开始时打开 Loading，
+最后一个请求结束时关闭。[查看可运行示例](./request-and-errors.md#阶段五把一次请求的收尾集中起来)。
+
+## 6. 按需加入取消与重试
+
+阶段五先建立了不会漏掉收尾的请求外壳。项目确实需要时，再把取消信号和安全读取重试
+放进这个外壳内部：
 
 ```ts
 async function loadUser(userId: string, signal: AbortSignal) {
   return http.get<User>(`/users/${userId}`, {
     showLoading: true,
+    signal,
     retry: {
       retries: 2,
       totalTimeoutMs: 8_000,
     },
-    signal,
   });
 }
 ```
 
-Loading 只开关一次；内部即使重试，请求仍然只有一个页面级生命周期。
-[查看取消、Loading 与重试的完整实现](./lifecycle.md)。
+页面的一次 `loadUser()` 仍然只对应一次开始和收尾；重试只增加内部物理请求次数。
+[查看取消、Loading 与重试](./lifecycle.md)。
 
-## 6. 在请求链上加入认证恢复
+## 7. 在请求链上加入认证恢复
 
 受保护接口还需要两项能力：发送前带上 Access Token，收到 401 后刷新凭证并重放原
 请求。它们安装在同一个 Axios 实例上：
@@ -301,6 +301,12 @@ loadUser()
 
 如果刷新失败，认证模块结束当前会话；如果刷新成功但重放仍是 401，则直接失败，不再
 循环刷新。[查看认证与 401 恢复](./auth.md)。
+
+## 8. 回到页面验证完整请求
+
+完整封装接好以后，页面仍然使用普通的 `await loadUser()`；差异只在请求内部是否启用了
+错误提示、Loading、重试或认证恢复。最后通过成功、最终失败和 401 恢复三条路径验证
+各模块能否正确协作。[查看端到端验证](./modules-and-e2e.md)。
 
 ## 最终结构
 
