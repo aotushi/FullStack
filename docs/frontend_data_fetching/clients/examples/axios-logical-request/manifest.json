@@ -1,0 +1,11 @@
+{
+  "id": "axios-logical-request",
+  "title": "阶段五：集中一次请求的收尾",
+  "description": "在统一错误出口外增加 Loading 计数与 finally，成功、失败和并发都能正确收尾。",
+  "defaultFile": "src/http.ts",
+  "runnable": true,
+  "installable": true,
+  "scripts": {
+    "dev": "npm run dev"
+  }
+}

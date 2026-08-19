@@ -1,0 +1,11 @@
+{
+  "id": "axios-unified-errors",
+  "title": "阶段四：统一错误出口",
+  "description": "从阶段三原样抛出的多种错误开始，把 HTTP、超时和协议错误整理到同一个出口。",
+  "defaultFile": "src/http.ts",
+  "runnable": true,
+  "installable": true,
+  "scripts": {
+    "dev": "npm run dev"
+  }
+}
