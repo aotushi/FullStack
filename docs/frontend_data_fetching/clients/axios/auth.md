@@ -114,6 +114,30 @@ http.resetAuthState(); // 顺序不能反
 回来一提交，已终结的会话就地复活——而那个令牌是服务端真实签发的，复活之后一切
 请求照常成功，没有任何报错提醒你。
 
+### 代际管不到的一层：Set-Cookie
+
+代际作废的只是**内存侧**的提交。轮换制下刷新响应还带着 `Set-Cookie`——那是浏览器
+在响应到达的一刻直接写入的，JS 没有任何拦截点。于是边界动作即使推了代际，晚到的旧
+刷新响应仍会把它的 Cookie 盖在边界动作刚写的那份上面。危害分两级，由后端的登出语义
+决定：
+
+- 后端登出只吊销单条凭证——被盖回去的旧凭证还活着，**已登出的会话在 Cookie 层
+  复活**，下一个 401 一刷新就整个回来了；
+- 后端登出按链/家族吊销（admin-backend-3 的 `revokeRefreshSession` 内部就是整族
+  撤销）——盖回去的是死凭证，会话不会复活，但新登录的第一次刷新会撞上它，被一次
+  不该发生的登出打断。
+
+所以这个口子要两侧配对才算收上。服务端一侧，**登出必须按家族吊销**（这同时是轮换
+方案自身的安全底线）；前端一侧，边界动作发出前**排空在途刷新**：
+
+```ts
+await http.waitForRefreshSettled(); // 等在途刷新落定（成败都算），再发登录/登出
+await loginApi(payload); // 现在登录响应才是最后写 Cookie 的认证响应
+```
+
+它不复抛刷新的错误——边界只关心「没有旧响应还在路上」，让登录、登出的响应成为
+最后写 Cookie 的那一个。
+
 ## 独立实例还不够：链路隔离
 
 刷新用的是独立的裸 Axios 实例，但两条链路**并没有因此自动隔离**：
@@ -143,6 +167,24 @@ Access Token 不写 `localStorage`/`sessionStorage`：那样任何 XSS 都能直
 换成 Pinia / Zustand / Redux 切片。HTTP 模块只通过 `AuthAdapter` 读写它。
 
 `withCredentials: true` 只开在刷新实例上，跨域 Cookie 的暴露面被压到一个接口。
+
+### Cookie 方案的前提：刷新端点自带防线
+
+把 Refresh Token 放进 Cookie，等于把「带凭证」交给浏览器自动完成——反过来说，
+**任何页面向刷新端点发请求，浏览器都可能替它把 Cookie 带上**（CSRF）。所以这个
+方案不是装上就安全，它把四件事变成后端的硬前提，采用前逐条确认：
+
+- `HttpOnly` + `Secure`：JS 读不到、明文信道不发送——本节的 XSS 立场靠它们成立；
+- `SameSite=Strict`（至少 `Lax`）：跨站页面发起的请求不带这枚 Cookie，堵掉 CSRF
+  的主通道，代价是前后端必须同站（子域可以，这是很多项目选子域拆分而不是跨域的
+  真实原因）；
+- `Path` 锁到认证路由：业务接口拿不到这枚 Cookie，暴露面只剩认证端点本身；
+- **Origin 校验**：`SameSite` 是浏览器行为，旧浏览器与非浏览器客户端不受约束，
+  服务端仍要对登录/刷新/登出校验 `Origin` 白名单，不通过的连 Cookie 一起清掉。
+
+admin-backend-3 的对应实现：Cookie 属性集中在后端 `auth-cookies.ts`（`HttpOnly` +
+`SameSite=Strict` + `Secure` + `Path=/admin/api/auth`），三个认证端点入口统一过
+`isTrustedBrowserOrigin`。四条全在服务端，前端能做的只有上面那个最小暴露面。
 
 ### AuthSession 的 Pinia 实现
 
@@ -290,9 +332,12 @@ Keycloak……）把 Refresh Token Rotation 当默认实践的原因——**重�
    是内建原语，这正是下面那个同步模块能全量 Node 测试的原因。）
 
 所以采用本封装前，向后端确认一句话：**「刷新轮换有没有并发宽限窗口（reuse
-interval）？」**有——这是 OAuth2 方案的默认——多标签页就可以放心用；没有、且用户
-确实会开多标签页，再在项目侧补前端互斥（重写单飞状态机；admin-backend-3 换代前的
-会话协调器可在其 git 历史里找到参照）。那是一个明确的扩展点，不是本工程的缺口。
+interval）？」**这一问不是走过场，因为宽限**不是默认配置**：OAuth2 安全最佳实践
+（RFC 9700）对轮换后旧凭证重放的推荐处置就是撤销整条家族，宽限是各实现自选的缓和
+项——托管方案里也一样，比如 Auth0 的 reuse interval 默认为 0、要显式开启。答案是
+有，多标签页就可以放心用；没有、且用户确实会开多标签页，再在项目侧补前端互斥
+（重写单飞状态机；admin-backend-3 换代前的会话协调器可在其 git 历史里找到参照）。
+那是一个明确的扩展点，不是本工程的缺口。
 
 ### 互斥不进，同步进：旁挂的会话同步模块
 
@@ -513,7 +558,8 @@ header；不再需要 `withCredentials`。
 
 `test/auth-session-isolation.test.ts` 覆盖会话代际；
 `test/http-client.test.ts` 里有并发 401 只刷新一次、在途刷新撞上登录/登出被代际
-作废、以及终结判定交给适配器（OAuth 式 400 + `invalid_grant`）的用例；
+作废、会话边界前 `waitForRefreshSettled()` 排空在途刷新、以及终结判定交给适配器
+（OAuth 式 400 + `invalid_grant`）的用例；
 `test/failure-budgets.test.ts` 覆盖两类刷新失败的分野——5xx 只熔断不清会话、冷却
 结束后静默自愈；`test/session-sync.test.ts` 覆盖跨标签页同步与事件屏障——全部在
 Node 里跑，正是 BroadcastChannel 是 Node 内建原语的直接证据。

@@ -960,6 +960,94 @@ describe("authentication capability", () => {
     expect(session.getAccessToken()).toBeNull();
   });
 
+  it("waits for an in-flight refresh to settle before a session boundary", async () => {
+    // 会话边界动作（登录、登出请求）发出前用它排空在途刷新：JS 拦不住刷新响应的
+    // Set-Cookie，代际只护住内存侧；只有让旧响应先落地，边界动作拿到的 Cookie
+    // 才是最后写入的那份，不会被旧会话的轮换响应回盖。
+    let resolveRefreshArrived!: (response: ServerResponse) => void;
+    const refreshArrived = new Promise<ServerResponse>((resolve) => {
+      resolveRefreshArrived = resolve;
+    });
+    const baseURL = await startServer((request, response) => {
+      if (request.url === "/auth/refresh") {
+        resolveRefreshArrived(response);
+        return;
+      }
+
+      if (request.headers.authorization === "Bearer old") {
+        sendJson(response, 401, { code: 40100, message: "expired", data: null });
+        return;
+      }
+
+      sendJson(response, 200, { code: 0, message: "ok", data: { ok: true } });
+    });
+    const session = createMemoryAuthSession({
+      initialAccessToken: "old",
+      onExpired: vi.fn(),
+    });
+    const http = createHttpClient({
+      baseURL,
+      auth: createTestAuth(baseURL, session),
+    });
+
+    const inflight = http.get<{ ok: boolean }>("/protected");
+    const refreshResponse = await refreshArrived;
+
+    let settled = false;
+    const waiting = http.waitForRefreshSettled().then(() => {
+      settled = true;
+    });
+    // 刷新仍在途：不得提前放行
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(settled).toBe(false);
+
+    sendJson(refreshResponse, 200, {
+      code: 0,
+      message: "ok",
+      data: { accessToken: "fresh" },
+    });
+    await waiting;
+    // 放行时新凭证已提交完成，边界动作可以安全发出
+    expect(session.getAccessToken()).toBe("fresh");
+    await expect(inflight).resolves.toEqual({ ok: true });
+  });
+
+  it("resolves immediately without an in-flight refresh and swallows refresh failures", async () => {
+    let resolveRefreshArrived!: (response: ServerResponse) => void;
+    const refreshArrived = new Promise<ServerResponse>((resolve) => {
+      resolveRefreshArrived = resolve;
+    });
+    const baseURL = await startServer((request, response) => {
+      if (request.url === "/auth/refresh") {
+        resolveRefreshArrived(response);
+        return;
+      }
+
+      sendJson(response, 401, { code: 40100, message: "expired", data: null });
+    });
+    const session = createMemoryAuthSession({
+      initialAccessToken: "old",
+      onExpired: vi.fn(),
+    });
+    const http = createHttpClient({
+      baseURL,
+      auth: createTestAuth(baseURL, session),
+    });
+
+    // 无在途刷新：立即落定
+    await http.waitForRefreshSettled();
+
+    const inflight = http.get("/protected").catch(() => undefined);
+    const refreshResponse = await refreshArrived;
+    const waiting = http.waitForRefreshSettled();
+
+    // 刷新以失败收场（503 走熔断不终结）：等待只关心「已落定」，不复抛刷新的错误
+    sendJson(refreshResponse, 503, { code: 50300, message: "unavailable", data: null });
+    await expect(waiting).resolves.toBeUndefined();
+    await inflight;
+    expect(session.getAccessToken()).toBe("old");
+  });
+
   it("lets the adapter decide which refresh failure ends the session", async () => {
     // OAuth 式后端用 400 + invalid_grant（而非 401）表示 Refresh Token 失效。
     // 「哪种失败意味着凭证已死」是后端契约，换个判定就能接入，不改引擎。
