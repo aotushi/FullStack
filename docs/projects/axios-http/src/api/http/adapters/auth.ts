@@ -1,9 +1,10 @@
 /**
  * 认证适配器：把「本项目用 Bearer Token + Cookie 刷新」这套具体做法，翻译成 auth.ts
- * 要的三个动作（带凭证、刷新凭证、作废会话）。
+ * 要的四个动作（带凭证、刷新凭证、判定终结、作废会话）。
  *
- * auth.ts 那边只管**什么时候**刷新（单飞、冷却、重放），完全不知道令牌长什么样。
- * 换成别的认证方案——自定义 header、双 token、OAuth——只需要另写一个这样的文件。
+ * auth.ts 那边只管**什么时候**刷新（单飞、冷却、重放）与**要不要采纳**刷新结果
+ * （会话代际把关），完全不知道令牌长什么样。换成别的认证方案——自定义 header、
+ * 双 token、OAuth——只需要另写一个这样的文件。
  */
 
 import axios, {
@@ -59,7 +60,21 @@ export function createBearerAuthAdapter(
       const response = await refreshClient.post<unknown>(
         options.refreshUrl ?? "/auth/refresh",
       );
-      options.setAccessToken(options.selectAccessToken(response));
+      // 解析在取回时就做——响应格式不对属于「这次刷新失败」，要立刻抛出去。
+      const accessToken = options.selectAccessToken(response);
+
+      // 只取回不落盘：写入由认证模块确认会话代际未变后执行。刷新在途期间用户可能
+      // 已经重新登录或登出，这里直接写会把旧会话的令牌盖到新状态上。
+      return () => {
+        options.setAccessToken(accessToken);
+      };
+    },
+
+    shouldExpireSession(error) {
+      // 本项目的后端契约：刷新端点用且仅用 401 表示 Refresh Token 失效（D-65）。
+      // 这是项目约定而非通用规律——OAuth 式后端就用 400 + invalid_grant 表达
+      // 同一件事，接那种后端时换掉这一条判定即可。
+      return axios.isAxiosError(error) && error.response?.status === 401;
     },
 
     expireSession: options.expireSession,

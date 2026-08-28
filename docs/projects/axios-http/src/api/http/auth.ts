@@ -14,8 +14,8 @@
  *                             但也不能永久锁死，所以带一个冷却窗口。
  *   expiredVersion            去重。让 expireSession()（通常是跳登录页）每代只触发
  *                             一次，而不是 10 个请求弹 10 次。
- *   sessionEpoch              会话代际。用户手动重新登录时推进，使上一个会话遗留的
- *                             在途刷新不再影响新会话。
+ *   sessionEpoch              会话代际。跨过会话边界（登录、登出）时推进，使上一个
+ *                             会话遗留的在途刷新不再影响新状态。
  *
  * 另有两个 WeakSet，用来标记「这个错误认证模块已经处理过了」，client.ts 据此决定
  * 不再叠一个全局提示。用 WeakSet 而不是往错误上加字段，既不污染错误对象，也不会
@@ -33,7 +33,19 @@ export interface AuthBehavior {
 
 export interface AuthAdapter {
   applyCredential(config: InternalAxiosRequestConfig): void;
-  refreshCredential(): Promise<void>;
+  /**
+   * 取回新凭证但**不落盘**，返回一个提交函数。写入由认证模块在确认会话代际未变后
+   * 执行——若适配器自己写，旧会话的在途刷新回来时已经覆盖了用户刚登录的新凭证，
+   * 代际检查只能追认损失。
+   */
+  refreshCredential(): Promise<() => void>;
+  /**
+   * 判定一次刷新失败是否意味着凭证已死、会话应当终结。「哪种失败表示 Refresh
+   * Token 失效」是后端契约（本项目是刷新端点的 401，OAuth 式后端是
+   * 400 + invalid_grant），所以住在适配器里，引擎不内置任何状态码假设。
+   * 返回 false 的失败走引擎的熔断冷却，窗口结束后重试。
+   */
+  shouldExpireSession(error: unknown): boolean;
   expireSession(): void;
 }
 
@@ -153,13 +165,14 @@ export function installAuth(
       let pending: Promise<void> | undefined;
       pending = adapter
         .refreshCredential()
-        .then(() => {
-          // 上一会话的刷新即使成功也要丢弃：它拿回来的是旧会话的令牌，写进去会把
-          // 用户刚登录的新凭证覆盖掉。
+        .then((commitCredential) => {
+          // 上一会话的刷新即使成功也要丢弃：它拿回来的是旧会话的令牌，提交了会把
+          // 用户刚登录的新凭证覆盖掉。适配器只取回不落盘，落盘由这里把关。
           if (epoch !== sessionEpoch) {
             return;
           }
 
+          commitCredential();
           credentialVersion += 1;
           failedVersion = undefined;
           failedError = undefined;
@@ -171,10 +184,11 @@ export function installAuth(
             failedVersion = version;
             failedError = handledError;
             failedAt = Date.now();
-            // 只有刷新端点明确回答 401——Refresh Token 本身失效——才终结会话。
-            // 网络错、超时、5xx 只说明端点「暂时无法回答」，此刻清会话会把一次
-            // 抖动放大成一次强制登出；留给上面的熔断冷却，窗口结束后自愈（D-65）。
-            if (axios.isAxiosError(error) && error.response?.status === 401) {
+            // 只有适配器确认「这次失败意味着凭证已死」才终结会话（本项目的答案
+            // 是刷新端点的 401，见适配器；D-65）。网络错、超时、5xx 只说明端点
+            // 「暂时无法回答」，此刻清会话会把一次抖动放大成一次强制登出；
+            // 留给上面的熔断冷却，窗口结束后自愈。
+            if (adapter.shouldExpireSession(error)) {
               expireOnce(version);
             }
           }
@@ -270,8 +284,9 @@ export function installAuth(
   );
 
   return {
-    // 用户重新登录时调。它做的是「开一个新会话」，而不是「清理干净」——所有代际都
-    // 往前推一格，于是上一会话的在途刷新回来时会发现自己已经过时，自动作废。
+    // 跨过会话边界（登录、登出、切换账号）时调。它做的是「翻过这一页」，而不是
+    // 「清理干净」——所有代际都往前推一格，于是上一会话的在途刷新回来时会发现
+    // 自己已经过时，自动作废。
     resetAuthState() {
       sessionEpoch += 1;
       credentialVersion += 1;
