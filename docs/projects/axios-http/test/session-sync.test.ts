@@ -145,6 +145,92 @@ describe("createSessionSync", () => {
     expect(receiver.recorder.endedEvents).toHaveLength(2);
   });
 
+  it("同毫秒的终结与更新冲突，两种到达顺序都收敛为终结", async () => {
+    const sentAt = Date.now() + 5000;
+
+    // 顺序一：先终结后更新——更新在全序中更旧，必须被丢弃
+    const channelA = nextChannelName();
+    const receiverA = openSync(channelA);
+    const probeA = openProbe(channelA);
+    probeA.channel.postMessage({ sentAt, sourceId: "tab-a", type: "session-ended" });
+    probeA.channel.postMessage({
+      sentAt,
+      session: { accessToken: "stale" },
+      sourceId: "tab-b",
+      type: "session-updated",
+    });
+    // 收尾标记：等它被处理即可确认前两条走完了判定
+    probeA.channel.postMessage({
+      sentAt: sentAt + 1,
+      sourceId: "tab-a",
+      type: "session-ended",
+    });
+    await until(() => receiverA.recorder.endedEvents.length === 2);
+    expect(receiverA.recorder.updatedSessions).toHaveLength(0);
+
+    // 顺序二：先更新后终结——终结在全序中更新，必须被接受，净效果同样是终结
+    const channelB = nextChannelName();
+    const receiverB = openSync(channelB);
+    const probeB = openProbe(channelB);
+    probeB.channel.postMessage({
+      sentAt,
+      session: { accessToken: "stale" },
+      sourceId: "tab-b",
+      type: "session-updated",
+    });
+    probeB.channel.postMessage({ sentAt, sourceId: "tab-a", type: "session-ended" });
+    await until(() => receiverB.recorder.endedEvents.length === 1);
+  });
+
+  it("同毫秒不同来源的两个更新按确定性规则收敛到同一份会话", async () => {
+    const sentAt = Date.now() + 5000;
+
+    // 顺序一：来源序高的先到，序低的后到必须被丢弃
+    const channelA = nextChannelName();
+    const receiverA = openSync(channelA);
+    const probeA = openProbe(channelA);
+    probeA.channel.postMessage({
+      sentAt,
+      session: { accessToken: "session-bb" },
+      sourceId: "tab-bb",
+      type: "session-updated",
+    });
+    probeA.channel.postMessage({
+      sentAt,
+      session: { accessToken: "session-aa" },
+      sourceId: "tab-aa",
+      type: "session-updated",
+    });
+    probeA.channel.postMessage({
+      sentAt: sentAt + 1,
+      sourceId: "tab-bb",
+      type: "session-ended",
+    });
+    await until(() => receiverA.recorder.endedEvents.length === 1);
+    expect(receiverA.recorder.updatedSessions.map((s) => s.accessToken)).toEqual([
+      "session-bb",
+    ]);
+
+    // 顺序二：序低的先到、序高的后到，最终生效的必须是同一份（序高者）
+    const channelB = nextChannelName();
+    const receiverB = openSync(channelB);
+    const probeB = openProbe(channelB);
+    probeB.channel.postMessage({
+      sentAt,
+      session: { accessToken: "session-aa" },
+      sourceId: "tab-aa",
+      type: "session-updated",
+    });
+    probeB.channel.postMessage({
+      sentAt,
+      session: { accessToken: "session-bb" },
+      sourceId: "tab-bb",
+      type: "session-updated",
+    });
+    await until(() => receiverB.recorder.updatedSessions.length === 2);
+    expect(receiverB.recorder.updatedSessions.at(-1)?.accessToken).toBe("session-bb");
+  });
+
   it("dispose 之后既不再接收也不再发布", async () => {
     const channelName = nextChannelName();
     const alive = openSync(channelName);

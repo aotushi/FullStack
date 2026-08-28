@@ -37,7 +37,7 @@ __authManaged            只处理本实例盖过章的请求                   
 failedVersion/Error/At   熔断 + 冷却窗口                            → 挡 ④
 expiredVersion           expireSession() 每代只触发一次             → 挡 ⑤
 credentialVersion        凭证代际：区分「旧令牌失败」和「新的也失败」
-sessionEpoch             会话代际：用户重新登录时推进
+sessionEpoch             会话代际：跨过会话边界（登录、登出）时推进
 ```
 
 正常的失效流程：
@@ -80,30 +80,39 @@ if (requestVersion >= credentialVersion) {
 ```
 
 直觉的写法是不分：刷新一失败就踢登录。这会把一次抖动放大成一次强制登出——凭证
-仍然有效、服务端一秒后就恢复了，用户却已经站在登录页上。分辨两者不需要任何后端
-约定：刷新请求本身的 HTTP 状态码就是答案，和「HTTP 状态是唯一权威」同一条立场。
+仍然有效、服务端一秒后就恢复了，用户却已经站在登录页上。分辨两者**依赖一条明确的
+后端契约**：本项目约定刷新端点用且仅用 401 表示 Refresh Token 失效（D-65），上面那
+张两分支图才成立。这是项目约定而非通用规律——OAuth2 后端（RFC 6749 §5.2）就用
+400 + `invalid_grant` 表达同一件事，照搬 401 判定的话，真正的凭证死亡会被当成
+「暂时答不上来」而永远困在熔断冷却里。所以「哪种失败终结会话」的判定不进引擎，
+放在适配器的 `shouldExpireSession(error)` 里，引擎不内置任何状态码假设。
 
 熔断缓存对两种失败都生效：冷却窗口内的后续 401 直接复用缓存的失败，不再打刷新
 端点。没有冷却，抖动会被**记到页面关闭为止**——每个后续请求都只拿到缓存里的旧
 错误，用户除了刷新页面无路可走。有了冷却，窗口结束后放行一次新的尝试，端点恢复
 则**静默自愈**：全程会话未清、没有惊动用户。它是**熔断**，不是终身锁定。
 
-## 会话代际：登录发生在刷新在途时
+## 会话代际：登录、登出撞上在途刷新
 
 ```ts
 authSession.setAccessToken(result.accessToken);
 http.resetAuthState(); // 顺序不能反
 ```
 
-`resetAuthState()` 做的是「开一个新会话」而不是「清理干净」——所有代际往前推一格，
+`resetAuthState()` 做的是「翻过这一页」而不是「清理干净」——所有代际往前推一格，
 于是上一会话在途的刷新回来时会发现自己已经过时，自动作废：
 
-- 它成功了也丢弃——拿回来的是旧会话的令牌，写进去会覆盖用户刚登录的新凭证。
+- 它成功了也丢弃——拿回来的是旧会话的令牌，提交了会覆盖用户刚登录的新凭证。
+  为此适配器的 `refreshCredential` 只**取回**凭证、返回一个提交函数，写入由状态机
+  确认代际未变后执行；若适配器自己落盘，等代际检查跑到时新凭证已经被盖掉，检查
+  只能追认损失。
 - 它失败了也不调 `expireSession()`——否则会把刚登录的会话立刻清掉。
 - 已经在等它的请求忽略这个失败，改用新凭证继续。
 
-自动刷新成功时模块已自行推进版本，不需要调这个方法。它只用于登录、重新登录、切换
-账号这些**会话边界**。
+自动刷新成功时模块已自行推进版本，不需要调这个方法。它用于登录、重新登录、切换
+账号、**登出**这些**会话边界**。登出最容易被漏掉：只清会话不推代际，在途的旧刷新
+回来一提交，已终结的会话就地复活——而那个令牌是服务端真实签发的，复活之后一切
+请求照常成功，没有任何报错提醒你。
 
 ## 独立实例还不够：链路隔离
 
@@ -304,7 +313,7 @@ const sync = createSessionSync<Session>("my-app-auth", {
     /* 写入会话存储 + resetAuthState() 开新代际 */
   },
   onSessionEnded() {
-    /* 清空会话存储 */
+    /* 清空会话存储 + resetAuthState() 开新代际 */
   },
 });
 // 本地登录 / 刷新成功 / 登出时反向广播：
@@ -315,11 +324,15 @@ sync.publishSessionEnded();
 它能进源码而互斥不能，分界就一条：**是否介入刷新决策**。同步不参与「什么时候
 刷新」，只搬运结果；模块对 `http/` 零依赖，handlers 由项目侧接线——admin-backend-3
 的桥接层就是现成样板：收到更新写入自己的会话存储并 `resetAuthState()`，收到终结
-清空存储，采纳期间抑制回声广播。
+清空存储并同样开新代际（终结也是会话边界），采纳期间抑制回声广播。
 
 模块内唯一有分量的逻辑是**事件屏障**：BroadcastChannel 不保证多标签页事件的全局
 顺序，「登出之后才到达的过期更新」会复活已终结的会话。每个事件盖单调递增的时间戳
 （`max(Date.now(), 上一事件 + 1)`），只接受比已见事件新的，旧事实就盖不掉新事实。
+时间戳打平（两个标签页同一毫秒各自发事件）是真并发，谁先谁后没有事实答案，屏障
+退而求**确定性**：按（时间戳, 类型, 来源）全序裁决，终结压过更新——宁可多登出一
+次，不可复活已终结的会话。少了这条裁决，结局取决于各标签页的到达顺序，同一对冲
+突事件会让一部分标签页登出、另一部分留着会话。
 
 接上它还有一个顺带的收益：刷新成功的新令牌会随 `session-updated` 传给所有标签页，
 其余标签页直接采纳、不再各自刷新，宽限窗口从常规路径退回真正的兜底。
@@ -371,13 +384,14 @@ JWT + Refresh Token 续期」——绕回了双 token。
 
 ### 换方案 = 换插件
 
-方案没有写死在状态机里。auth.ts 只依赖三个动作，这就是插件契约：
+方案没有写死在状态机里。auth.ts 只依赖四个动作，这就是插件契约：
 
-| 契约方法                  | 回答的问题       | 当前实现（Bearer + Cookie）                 |
-| ------------------------- | ---------------- | ------------------------------------------- |
-| `applyCredential(config)` | 凭证怎么带上请求 | 设 `Authorization: Bearer <内存里的 token>` |
-| `refreshCredential()`     | 401 之后怎么续期 | 调刷新接口，浏览器自动带 Refresh Cookie     |
-| `expireSession()`         | 续不动了怎么办   | 清会话、跳登录页                            |
+| 契约方法                   | 回答的问题         | 当前实现（Bearer + Cookie）                       |
+| -------------------------- | ------------------ | ------------------------------------------------- |
+| `applyCredential(config)`  | 凭证怎么带上请求   | 设 `Authorization: Bearer <内存里的 token>`       |
+| `refreshCredential()`      | 401 之后怎么续期   | 调刷新接口（自动带 Refresh Cookie），返回提交函数 |
+| `shouldExpireSession(err)` | 哪种失败算凭证已死 | 刷新端点回 401（本项目契约，D-65）                |
+| `expireSession()`          | 续不动了怎么办     | 清会话、跳登录页                                  |
 
 单飞、熔断冷却、会话代际、重放去重——全在状态机里，**任何插件免费继承**。
 
@@ -401,9 +415,11 @@ export function createJwtAuthAdapter(options: {
       else config.headers.delete("Authorization");
     },
     // 后端没有续期接口：刷新即失败，状态机会接住它走 expireOnce
-    async refreshCredential() {
+    async refreshCredential(): Promise<() => void> {
       throw new Error("Single-token scheme has no refresh endpoint");
     },
+    // 没有任何续期途径，所以每一种刷新失败都意味着「续不动了」
+    shouldExpireSession: () => true,
     expireSession: options.expireSession,
   };
 }
@@ -433,7 +449,9 @@ async refreshCredential() {
   const response = await renewClient.post(options.renewUrl ?? "/auth/renew", null, {
     headers: { Authorization: `Bearer ${current}` },
   });
-  options.setAccessToken(options.selectAccessToken(response));
+  const next = options.selectAccessToken(response);
+  // 只取回不落盘：写入由状态机确认会话代际未变后执行
+  return () => options.setAccessToken(next);
 }
 ```
 
@@ -472,8 +490,9 @@ header；不再需要 `withCredentials`。
 
 1. **`applyCredential` 是同步的**——每次请求都要 `await` 的方案（WebCrypto 算签名、
    发送前确认过期）装不进去；
-2. **状态机假设「401 = 凭证问题、可续期」**——用 403 表达过期、或走
-   `WWW-Authenticate` 协商的方案对不上；
+2. **状态机假设业务端点的「401 = 凭证问题、可续期」**——业务侧用 403 表达过期、
+   或走 `WWW-Authenticate` 协商的方案对不上（刷新端点侧的失败语义不在此列，
+   它已经由 `shouldExpireSession` 归适配器回答）；
 3. **一个客户端实例只有一条刷新轨道**——两套独立续期的凭证（比如用户态 + 应用态）
    会在同一个 `credentialVersion` 上打架。
 
@@ -493,7 +512,8 @@ header；不再需要 `withCredentials`。
 ## 自己验证
 
 `test/auth-session-isolation.test.ts` 覆盖会话代际；
-`test/http-client.test.ts` 里有并发 401 只刷新一次的用例；
+`test/http-client.test.ts` 里有并发 401 只刷新一次、在途刷新撞上登录/登出被代际
+作废、以及终结判定交给适配器（OAuth 式 400 + `invalid_grant`）的用例；
 `test/failure-budgets.test.ts` 覆盖两类刷新失败的分野——5xx 只熔断不清会话、冷却
 结束后静默自愈；`test/session-sync.test.ts` 覆盖跨标签页同步与事件屏障——全部在
 Node 里跑，正是 BroadcastChannel 是 Node 内建原语的直接证据。

@@ -671,6 +671,7 @@ describe("authentication capability", () => {
         config.headers.set("Authorization", "Bearer current");
       },
       refreshCredential: vi.fn(),
+      shouldExpireSession: () => false,
       expireSession: vi.fn(),
     };
     const http = createHttpClient({ baseURL, auth });
@@ -867,6 +868,132 @@ describe("authentication capability", () => {
     expect(session.onExpired).toHaveBeenCalledTimes(1);
   });
 
+  it("discards a stale refresh so it cannot overwrite a newer login", async () => {
+    let resolveRefreshArrived!: (response: ServerResponse) => void;
+    const refreshArrived = new Promise<ServerResponse>((resolve) => {
+      resolveRefreshArrived = resolve;
+    });
+    const baseURL = await startServer((request, response) => {
+      if (request.url === "/auth/refresh") {
+        // 挂起刷新响应模拟慢网络：测试在这个窗口里完成重新登录。
+        resolveRefreshArrived(response);
+        return;
+      }
+
+      if (request.headers.authorization === "Bearer old") {
+        sendJson(response, 401, { code: 40100, message: "expired", data: null });
+        return;
+      }
+
+      sendJson(response, 200, { code: 0, message: "ok", data: { ok: true } });
+    });
+    const session = createMemoryAuthSession({
+      initialAccessToken: "old",
+      onExpired: vi.fn(),
+    });
+    const http = createHttpClient({
+      baseURL,
+      auth: createTestAuth(baseURL, session),
+    });
+
+    const inflight = http.get<{ ok: boolean }>("/protected");
+    const refreshResponse = await refreshArrived;
+
+    // 刷新在途期间用户重新登录，进入新会话。
+    session.setAccessToken("relogin");
+    http.resetAuthState();
+
+    // 旧会话的刷新此刻才回来，带着一个服务端仍然认可的令牌。
+    sendJson(refreshResponse, 200, {
+      code: 0,
+      message: "ok",
+      data: { accessToken: "stale-refresh" },
+    });
+
+    await expect(inflight).resolves.toEqual({ ok: true });
+    expect(session.getAccessToken()).toBe("relogin");
+  });
+
+  it("does not resurrect a session when a stale refresh lands after logout", async () => {
+    let resolveRefreshArrived!: (response: ServerResponse) => void;
+    const refreshArrived = new Promise<ServerResponse>((resolve) => {
+      resolveRefreshArrived = resolve;
+    });
+    const baseURL = await startServer((request, response) => {
+      if (request.url === "/auth/refresh") {
+        resolveRefreshArrived(response);
+        return;
+      }
+
+      // stale-refresh 是服务端真实签发的有效令牌，业务端点会认它——
+      // 「登出后被复活」的危险正在于此，令牌无效的话这个 bug 反而会被 401 掩盖。
+      if (request.headers.authorization === "Bearer stale-refresh") {
+        sendJson(response, 200, { code: 0, message: "ok", data: { ok: true } });
+        return;
+      }
+
+      sendJson(response, 401, { code: 40100, message: "expired", data: null });
+    });
+    const session = createMemoryAuthSession({
+      initialAccessToken: "old",
+      onExpired: vi.fn(),
+    });
+    const http = createHttpClient({
+      baseURL,
+      auth: createTestAuth(baseURL, session),
+    });
+
+    const inflight = http.get("/protected");
+    const refreshResponse = await refreshArrived;
+
+    // 刷新在途期间用户登出。登出与登录一样是会话边界，同样要开新代际。
+    session.clearSession();
+    http.resetAuthState();
+
+    sendJson(refreshResponse, 200, {
+      code: 0,
+      message: "ok",
+      data: { accessToken: "stale-refresh" },
+    });
+
+    await inflight.catch(() => undefined);
+    expect(session.getAccessToken()).toBeNull();
+  });
+
+  it("lets the adapter decide which refresh failure ends the session", async () => {
+    // OAuth 式后端用 400 + invalid_grant（而非 401）表示 Refresh Token 失效。
+    // 「哪种失败意味着凭证已死」是后端契约，换个判定就能接入，不改引擎。
+    const baseURL = await startServer((request, response) => {
+      if (request.url === "/auth/refresh") {
+        sendJson(response, 400, {
+          code: "invalid_grant",
+          message: "refresh token revoked",
+          data: null,
+        });
+        return;
+      }
+
+      sendJson(response, 401, { code: 40100, message: "expired", data: null });
+    });
+    const session = createMemoryAuthSession({
+      initialAccessToken: "old",
+      onExpired: vi.fn(),
+    });
+    const auth = {
+      ...createTestAuth(baseURL, session),
+      shouldExpireSession: (error: unknown) =>
+        axios.isAxiosError(error) &&
+        error.response?.status === 400 &&
+        (error.response.data as { code?: string } | undefined)?.code ===
+          "invalid_grant",
+    };
+    const http = createHttpClient({ baseURL, auth });
+
+    await http.get("/protected").catch(() => undefined);
+    expect(session.getAccessToken()).toBeNull();
+    expect(session.onExpired).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the session on a concurrent network refresh failure without repeated display", async () => {
     const baseURL = await startServer((_request, response) => {
       sendJson(response, 401, {
@@ -891,6 +1018,7 @@ describe("authentication capability", () => {
       refreshCredential: vi.fn(async () => {
         throw refreshError;
       }),
+      shouldExpireSession: () => false,
       expireSession: vi.fn(),
     };
     const onError = vi.fn();
@@ -1273,6 +1401,7 @@ describe("authentication capability", () => {
     const auth: AuthAdapter = {
       applyCredential: vi.fn(),
       refreshCredential: vi.fn(),
+      shouldExpireSession: () => false,
       expireSession: vi.fn(),
     };
     const onError = vi.fn();
