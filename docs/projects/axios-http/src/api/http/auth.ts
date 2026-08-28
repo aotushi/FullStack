@@ -51,6 +51,13 @@ export interface AuthAdapter {
 
 export interface AuthControl {
   resetAuthState(): void;
+  /**
+   * 等到没有在途刷新为止。会话边界动作（登录、登出请求）发出前调：代际机制只护
+   * 得住内存里的令牌，刷新响应里的 Set-Cookie 由浏览器在响应到达时直接写入，JS
+   * 拦不到——先排空在途刷新，边界动作的响应才是最后写 Cookie 的那一个。
+   * 刷新失败也算「落定」，此方法不复抛刷新的错误。
+   */
+  waitForRefreshSettled(): Promise<void>;
 }
 
 export interface InstallAuthOptions {
@@ -297,6 +304,13 @@ export function installAuth(
       expiredVersion = undefined;
       // 与在途刷新脱钩：新会话的请求不再排队等上一会话那次刷新的结果。
       refreshPromise = undefined;
+    },
+    async waitForRefreshSettled() {
+      // 用循环而不是单次 await：等待期间可能又有新请求触发下一轮刷新，
+      // 要等到「此刻确实没有在途刷新」才放行。
+      while (refreshPromise) {
+        await refreshPromise.catch(() => undefined);
+      }
     },
   };
 }

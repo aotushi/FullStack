@@ -165,6 +165,7 @@ export interface HttpClient {
   put<Result, Body = unknown>(url: string, data?: Body, config?: HttpRequestConfig<Body>): Promise<Result>;
   patch<Result, Body = unknown>(url: string, data?: Body, config?: HttpRequestConfig<Body>): Promise<Result>;
   resetAuthState(): void;
+  waitForRefreshSettled(): Promise<void>;
   cancelAll(): void;
 }
 
@@ -264,6 +265,10 @@ class AxiosHttpClient implements HttpClient {
 
   resetAuthState() {
     this.authControl?.resetAuthState();
+  }
+
+  waitForRefreshSettled() {
+    return this.authControl?.waitForRefreshSettled() ?? Promise.resolve();
   }
 
   private async execute<Result, Body>(
