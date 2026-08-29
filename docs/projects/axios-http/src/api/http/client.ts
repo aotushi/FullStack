@@ -165,6 +165,7 @@ export interface HttpClient {
   put<Result, Body = unknown>(url: string, data?: Body, config?: HttpRequestConfig<Body>): Promise<Result>;
   patch<Result, Body = unknown>(url: string, data?: Body, config?: HttpRequestConfig<Body>): Promise<Result>;
   resetAuthState(): void;
+  runAuthTransition<T>(action: () => Promise<T>): Promise<T>;
   waitForRefreshSettled(): Promise<void>;
   cancelAll(): void;
 }
@@ -265,6 +266,11 @@ class AxiosHttpClient implements HttpClient {
 
   resetAuthState() {
     this.authControl?.resetAuthState();
+  }
+
+  // 未装配认证模块时没有刷新可挡，直接执行动作本身。
+  runAuthTransition<T>(action: () => Promise<T>): Promise<T> {
+    return this.authControl ? this.authControl.runAuthTransition(action) : action();
   }
 
   waitForRefreshSettled() {

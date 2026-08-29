@@ -5,7 +5,7 @@
  * 幼稚的实现会打 10 次刷新接口，拿回 10 个新令牌，后面的把前面的挤掉——用户随机
  * 掉线。所以核心诉求是：**无论多少请求同时撞上 401，只刷新一次，然后把它们全部重放**。
  *
- * 围绕这个诉求有五组状态，各自挡住一个坑：
+ * 围绕这个诉求有六组状态，各自挡住一个坑：
  *
  *   refreshPromise            单飞。已经在刷了就复用同一个 Promise，不发起第二次。
  *   credentialVersion         凭证代际。区分「你拿旧令牌失败」和「新令牌也失败」：
@@ -16,6 +16,9 @@
  *                             一次，而不是 10 个请求弹 10 次。
  *   sessionEpoch              会话代际。跨过会话边界（登录、登出）时推进，使上一个
  *                             会话遗留的在途刷新不再影响新状态。
+ *   activeTransitions         边界闸。登录/登出执行期间挡住新刷新的产生——代际只能
+ *                             作废旧刷新的内存写入，Set-Cookie 拦不到，唯有不让它
+ *                             启程。见 runAuthTransition()。
  *
  * 另有两个 WeakSet，用来标记「这个错误认证模块已经处理过了」，client.ts 据此决定
  * 不再叠一个全局提示。用 WeakSet 而不是往错误上加字段，既不污染错误对象，也不会
@@ -52,10 +55,20 @@ export interface AuthAdapter {
 export interface AuthControl {
   resetAuthState(): void;
   /**
-   * 等到没有在途刷新为止。会话边界动作（登录、登出请求）发出前调：代际机制只护
+   * 会话边界动作（登录、登出）的执行闸：先挡住新刷新的产生，再排空已在途的刷新，
+   * 然后执行 action——边界请求与凭证写入都要放进 action 里闸内完成。代际机制只护
    * 得住内存里的令牌，刷新响应里的 Set-Cookie 由浏览器在响应到达时直接写入，JS
-   * 拦不到——先排空在途刷新，边界动作的响应才是最后写 Cookie 的那一个。
-   * 刷新失败也算「落定」，此方法不复抛刷新的错误。
+   * 拦不到；闸保证从排空到写入的整个窗口内没有任何认证响应在途或启程，边界动作的
+   * 响应就是最后写 Cookie 的那一个。闸内撞上 401 的请求会排队，闸放开后复查凭证
+   * 代际：边界已换代就直接用新凭证重放，不再刷新。
+   * action 的返回值与异常原样透传；无论成败，闸都会释放。注意 action 里只能发
+   * skipAuth 的边界请求——普通请求撞 401 会排队等闸，在 action 里等自己就是死锁。
+   */
+  runAuthTransition<T>(action: () => Promise<T>): Promise<T>;
+  /**
+   * 等到没有在途刷新为止。刷新失败也算「落定」，此方法不复抛刷新的错误。
+   * 这是 runAuthTransition 的排空原语：单独使用只能清掉「已有的」在途刷新，挡不住
+   * 排空之后、边界动作往返期间新起的那一个——会话边界请用 runAuthTransition。
    */
   waitForRefreshSettled(): Promise<void>;
 }
@@ -139,6 +152,11 @@ export function installAuth(
   let expiredVersion: number | undefined;
   // 会话代际：显式重建会话时推进，用于判定在途刷新是否已经过时。
   let sessionEpoch = 0;
+  // 会话边界闸：>0 表示登录/登出正在执行。计数而非布尔，是给「边界里又套边界」
+  // 这种理论情况留的余量；闸的等待方在 refreshOnce() 顶部。
+  let activeTransitions = 0;
+  let transitionGate: Promise<void> | undefined;
+  let openTransitionGate: (() => void) | undefined;
 
   // 同一代凭证只失效一次。10 个请求同时确认「登录真的过期了」，用户也只该被踢到
   // 登录页一次。
@@ -152,7 +170,20 @@ export function installAuth(
   }
 
   // 单飞的实现：所有撞上 401 的请求都调它，但真正打刷新接口的只有第一个。
-  function refreshOnce(version: number) {
+  async function refreshOnce(version: number) {
+    // 会话边界（登录、登出）执行期间不起新刷新：边界动作的响应必须是最后写 Cookie
+    // 的认证响应，此刻多起的刷新会晚到并把它回盖。等闸放开——用循环是因为醒来时
+    // 可能又有新的边界开始了。
+    while (transitionGate) {
+      await transitionGate;
+    }
+
+    // ——闸后复查代际：边界动作若已提交新凭证（登录成功），这个 401 属于上一代，
+    // 直接返回让调用方拿新令牌重放；代际没动（比如登录失败了）才继续走刷新。
+    if (version < credentialVersion) {
+      return;
+    }
+
     if (failedVersion === version) {
       if (Date.now() - failedAt < refreshCooldownMs) {
         // 熔断打开：直接复用上次那个失败，不再打刷新端点。
@@ -304,6 +335,33 @@ export function installAuth(
       expiredVersion = undefined;
       // 与在途刷新脱钩：新会话的请求不再排队等上一会话那次刷新的结果。
       refreshPromise = undefined;
+    },
+    async runAuthTransition<T>(action: () => Promise<T>): Promise<T> {
+      // ①上闸：从此刻起新撞上 401 的请求只在 refreshOnce() 顶部排队，不再起刷新。
+      activeTransitions += 1;
+      transitionGate ??= new Promise((resolve) => {
+        openTransitionGate = resolve;
+      });
+
+      try {
+        // ②排空：等已在途的刷新落定（成败都算）。闸已上，排空后不会再冒出新的。
+        while (refreshPromise) {
+          await refreshPromise.catch(() => undefined);
+        }
+
+        // ③执行边界动作：登录/登出请求和凭证写入都在闸内完成，「响应已回、写入
+        // 未落」的微任务缝隙也在闸的保护之内。
+        return await action();
+      } finally {
+        // ④放闸：无论 action 成败都释放，唤醒排队的 401 去复查代际。
+        activeTransitions -= 1;
+        if (activeTransitions === 0) {
+          const release = openTransitionGate;
+          transitionGate = undefined;
+          openTransitionGate = undefined;
+          release?.();
+        }
+      }
     },
     async waitForRefreshSettled() {
       // 用循环而不是单次 await：等待期间可能又有新请求触发下一轮刷新，
