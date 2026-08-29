@@ -504,7 +504,9 @@ skipAuth: true
 - 网络错误、超时、`5xx` 及其他非 `401` 失败：端点暂时无法回答，不代表凭证失效。
   只写入熔断缓存、不清除会话；冷却结束后端点恢复即静默自愈，用户无感知。
 
-判定依据是刷新请求自身的 HTTP 状态码，不需要额外后端约定，与 D-05 同一精神。
+「哪种失败表示凭证已死」是后端契约，判定住在适配器的 `shouldExpireSession` 里
+（本项目按刷新请求自身的 `401`，OAuth 式后端是 `400` + `invalid_grant`），引擎
+不内置任何状态码假设。
 不分两类——刷新一失败就清会话——会把一次网络抖动放大成一次强制登出；失败被永久
 缓存则会把客户端锁死到页面刷新为止，即使凭证仍然有效、服务端已经恢复。
 `resetAuthState()` 同时清除冷却计时，显式登录不受上一会话的冷却窗口影响。
@@ -513,20 +515,26 @@ skipAuth: true
 
 刷新失败和会话失效状态只属于当前会话，不能泄漏到用户重新登录后的新会话。
 
-登录模块在登录请求成功并保存新 Access Token 后，必须显式通知同一个 HTTP 客户端：
+登录模块把整段边界动作交给同一个 HTTP 客户端的 `runAuthTransition()` 执行：闸内
+先挡住新刷新的产生、排空在途刷新，再发登录请求并写入新会话——代际只能作废旧刷新
+的内存提交，拦不住其响应里由浏览器直写的 `Set-Cookie`，闸保证登录响应就是最后写
+Cookie 的认证响应：
 
 ```ts
-const result = await http.post<LoginResult, LoginInput>(
-  "/auth/login",
-  input,
-  {
-    skipAuth: true,
-    errorMode: "silent",
-  },
-);
+await http.runAuthTransition(async () => {
+  const result = await http.post<LoginResult, LoginInput>(
+    "/auth/login",
+    input,
+    {
+      skipAuth: true,
+      errorMode: "silent",
+    },
+  );
 
-authSession.setAccessToken(result.accessToken);
-http.resetAuthState();
+  authSession.setAccessToken(result.accessToken);
+  http.resetAuthState();
+  return result;
+});
 ```
 
 `resetAuthState()` 会：

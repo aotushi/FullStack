@@ -1,7 +1,24 @@
 # 认证与凭证刷新
 
 本页对应学习路径的阶段七。它排在所有能力的最后，因为它是唯一一个**状态多到需要
-先画图**的模块。
+先画图**的模块——但没有人是一次画出那张图的。本页按它真实的生长顺序走：从十行的
+直觉拦截器开始，每暴露一个坑，多长一个状态；走到「复盘」一节，图就自己画完了。
+
+全文回答这些问题，前六步长出状态机，之后把它接进真实项目：
+
+| #   | 回答的问题                           | 引入的东西                                            |
+| --- | ------------------------------------ | ----------------------------------------------------- |
+| 1   | 10 个并发 401 怎么只刷一次           | `refreshPromise` 单飞                                 |
+| 2   | 迟到的 401 为什么不配再刷一轮        | `credentialVersion` 凭证代际                          |
+| 3   | 重放还是 401 怎么不死循环            | `__authRetry` 一次性重放                              |
+| 4   | 刷新请求自己 401 怎么不递归          | 独立实例 + `__authManaged` 盖章                       |
+| 5   | 刷新接口挂了怎么办，谁判「凭证已死」 | 熔断冷却 + `shouldExpireSession`                      |
+| 6   | 会话终结怎么只宣告一次               | `expireOnce`                                          |
+| 7   | 这套东西怎么装进项目                 | `AuthSession` → 适配器 → `createHttpClient({ auth })` |
+| 8   | 登录、登出撞上在途刷新怎么办         | `sessionEpoch` + `runAuthTransition()`                |
+| 9   | 令牌存哪，Cookie 方案的安全前提      | 内存 + HttpOnly Cookie                                |
+| 10  | 多标签页下这套封装会怎样             | 轮换、宽限窗口、会话同步                              |
+| 11  | 换一种认证方案要改多少               | 四动作适配器契约                                      |
 
 ## 场景
 
@@ -28,19 +45,27 @@ axiosInstance.interceptors.response.use(null, async (error) => {
 4. **刷新接口挂了的时候**，每个请求都去捅它一下。
 5. **10 个请求各弹一次「登录已过期」**。
 
-## 现在的写法：五组状态各挡一个坑
+## 第一步：单飞——10 个 401 只换一次刷新
 
-```text
-refreshPromise           单飞。已经在刷了就复用同一个 Promise      → 挡 ①
-__authRetry              已经重放过一次就不再刷新                   → 挡 ②
-__authManaged            只处理本实例盖过章的请求                   → 挡 ③
-failedVersion/Error/At   熔断 + 冷却窗口                            → 挡 ④
-expiredVersion           expireSession() 每代只触发一次             → 挡 ⑤
-credentialVersion        凭证代际：区分「旧令牌失败」和「新的也失败」
-sessionEpoch             会话代际：跨过会话边界（登录、登出）时推进
+先修最贵的坑 ①。直觉的修法是布尔锁加队列：`isRefreshing` 置起来之后，后来的请求进
+一个数组排队，刷新完了再挨个放行。能跑，但锁、队列、放行三样东西要自己维护、自己
+保证不漏；而 Promise 天生就是「一件事 + 一群等它的人」，三样合一：
+
+```ts
+let refreshPromise: Promise<void> | undefined;
+
+function refreshOnce() {
+  // 已经有人在刷：不发起第二次，所有人共享同一个进行中的 Promise
+  refreshPromise ??= doRefresh().finally(() => {
+    refreshPromise = undefined;
+  });
+  return refreshPromise;
+}
 ```
 
-正常的失效流程：
+10 个请求都 `await refreshOnce()`，真正打刷新接口的只有第一个——「队列」就是挂在
+同一个 Promise 上的九个 `await`，「放行」就是它落定。这正是源码 `http/auth.ts` 里
+`refreshOnce` 的骨架（它还多做几件事，后面几步逐个长出来）。流程收敛成：
 
 ```text
 10 个业务请求返回 401
@@ -56,20 +81,76 @@ sessionEpoch             会话代际：跨过会话边界（登录、登出）�
 尝试次数和最终结果。401 重放也是「一次逻辑请求产生多次物理尝试」的第二个来源
 （第一个是[重试](./lifecycle.md)）。
 
-## 凭证代际：为什么不能只看 401
+单飞挡住的是**同时**撞 401 的请求。还有一种 401 它管不着：**迟到的**。
+
+## 第二步：凭证代际——迟到的 401 不配再刷一轮
+
+刷新刚成功，一个发得早、回得慢的请求才带着 401 回来。它被拒理所应当——用的是旧
+令牌；但此刻 `refreshPromise` 已经清空，按第一步的逻辑它会发起一轮全新的刷新。接着
+下一个慢请求又到……10 个并发就算有单飞，也能这样**串行地刷上 10 轮**。
+
+拒绝它的理由应该是「你手里已经有新令牌了」。直觉的判法是对比令牌字符串——这个 401
+的请求带的 token 不等于当前 token，就是旧的。能用，但令牌字符串得一路传进比较逻辑。
+计数器更干净，凭证每变一次加一：
 
 ```ts
+let credentialVersion = 0; // 刷新成功、登录、采纳别的标签页的会话，都 +1
+
+// 请求拦截器：发出时盖上当时的代数
+config.__credentialVersion = credentialVersion;
+
+// 响应拦截器收到 401 时：
 if (requestVersion >= credentialVersion) {
-  await refreshOnce(requestVersion);
+  await refreshOnce(requestVersion); // 我用的就是当前代凭证，刷新才有意义
 }
+// 版本已落后则跳过刷新：别的请求刚刷新过，直接拿新令牌重放，一次往返都不多花
 ```
 
-如果 `credentialVersion` 已经涨上去了，说明**别的请求刚刚刷新成功**，本请求直接拿新
-令牌重放即可，不必再刷一次。少了这个判断，10 个并发就算有单飞也会串行地刷 10 轮。
+于是「401」被拆成了两种：**我的令牌旧了**（版本落后，直接重放）和**当前令牌不行**
+（版本一致，去刷新）。还有第三种——刷新完重放，**还是** 401。
 
-## 熔断为什么必须带冷却
+## 第三步：重放只有一次机会
 
-刷新失败不是一种失败，是两种，处置完全不同：
+坑 ②：拿新令牌重放，结果仍是 401。新令牌都不被认可，说明问题不是「令牌旧了」，是
+这个用户**真的没有这个权限**——再刷一次不会有不同的答案，而直觉版会在 401 和刷新
+之间无限循环，标签页就此卡死。
+
+「重放过没有」是**单个请求**的历史，不是全局状态，所以标记盖在请求 config 上：
+
+```ts
+if (config.__authRetry) {
+  // 重放过还是 401：宣告会话终结（怎么保证只宣告一次，见第六步）
+  expireOnce(requestVersion);
+  return Promise.reject(error);
+}
+
+config.__authRetry = true;
+return axiosInstance(config); // 整个 config 重新灌回实例，拦截器链会给它换上新令牌
+```
+
+## 第四步：刷新请求不能走进自己的拦截器
+
+坑 ③ 有两层。第一层好防：刷新走一个**独立的裸 Axios 实例**（`http/adapters/auth.ts`
+里的 `refreshClient`），它身上没有业务拦截器，自己收到 401 时不会再触发一次刷新。
+
+第二层藏得深：独立实例并没有让两条链路**自动隔离**——
+
+```text
+业务请求 → 请求拦截器 await refreshPromise
+                    ↓ 刷新失败
+        业务实例的响应错误拦截器收到刷新的 AxiosError
+                    ↓ config.url = "/auth/refresh", status = 401
+        误判成业务 401 → 重放刷新请求 → 其响应成为业务请求的结果
+```
+
+所以请求拦截器要盖章 `__authManaged = true`，响应拦截器把没盖章的错误原样放行。
+判断「这个错误是不是我该处理的」时，**状态码和 URL 都不够，必须确认它来自本实例**。
+
+## 第五步：刷新失败——熔断、冷却，以及谁来判「凭证已死」
+
+坑 ④：刷新接口挂了。此刻每个撞 401 的请求都想去捅它一下，而它答不上来。
+
+先分类。刷新失败不是一种失败，是两种，处置完全不同：
 
 ```text
 刷新端点回 401    Refresh Token 本身失效，凭证死了
@@ -87,15 +168,134 @@ if (requestVersion >= credentialVersion) {
 「暂时答不上来」而永远困在熔断冷却里。所以「哪种失败终结会话」的判定不进引擎，
 放在适配器的 `shouldExpireSession(error)` 里，引擎不内置任何状态码假设。
 
+「暂时答不上来」的那支怎么办？记入失败缓存，冷却窗口内不再打端点：
+
+```ts
+if (failedVersion === version) {
+  if (Date.now() - failedAt < refreshCooldownMs) {
+    return Promise.reject(failedError); // 熔断打开：复用上次的失败，不打端点
+  }
+  failedVersion = undefined; // 冷却结束，清掉缓存放行一次新的尝试
+}
+```
+
 熔断缓存对两种失败都生效：冷却窗口内的后续 401 直接复用缓存的失败，不再打刷新
 端点。没有冷却，抖动会被**记到页面关闭为止**——每个后续请求都只拿到缓存里的旧
 错误，用户除了刷新页面无路可走。有了冷却，窗口结束后放行一次新的尝试，端点恢复
 则**静默自愈**：全程会话未清、没有惊动用户。它是**熔断**，不是终身锁定。
 
-## 会话代际：登录、登出撞上在途刷新
+## 第六步：会话终结只宣告一次
+
+坑 ⑤ 是体验坑。「会话没救了」有两个出口——第三步的重放仍 401、第五步的凭证判死。
+10 个并发请求会先后走到出口，每个都清一次会话、跳一次登录页、弹一次「登录已过期」。
+
+终结和刷新一样要去重，但它拦的不是并发，是**同一代凭证的重复宣告**：
 
 ```ts
-authSession.setAccessToken(result.accessToken);
+let expiredVersion: number | undefined;
+
+function expireOnce(version: number) {
+  if (expiredVersion === version) return; // 这一代已经宣告过
+  expiredVersion = version;
+  adapter.expireSession(); // 清会话、跳登录——具体动作由适配器决定（见「装配」）
+}
+```
+
+按代去重而不是全局一次性布尔，是给「终结之后再登录」留路：新会话是新的一代，它
+自己的终结将来仍然要能触发一次。
+
+## 复盘：五组状态各挡一个坑
+
+到这里，幼稚版的五个塌方各有一个状态在挡：
+
+```text
+refreshPromise           单飞。已经在刷了就复用同一个 Promise      → 挡 ①（第一步）
+credentialVersion        凭证代际：迟到的 401 不再多刷一轮          →（第二步）
+__authRetry              已经重放过一次就不再刷新                   → 挡 ②（第三步）
+__authManaged            只处理本实例盖过章的请求                   → 挡 ③（第四步）
+failedVersion/Error/At   熔断 + 冷却窗口                            → 挡 ④（第五步）
+expiredVersion           expireSession() 每代只触发一次             → 挡 ⑤（第六步）
+sessionEpoch             会话代际：跨过会话边界（登录、登出）时推进 →（见下文）
+activeTransitions        边界闸：登录、登出执行期间不许新刷新启程   →（见下文）
+```
+
+这张表就是 `http/auth.ts` 文件头那张「需要先画」的图。它不是设计出来的，是被五个坑
+逼出来的——每一行都指回一个具体的塌方。表里多出的最后两行是仅剩没讲的状态：它们
+要等这套东西装进真实项目、开始处理登录登出之后才会暴露，所以先把装配讲完。
+
+## 装配：从 AuthSession 到 createHttpClient({ auth })
+
+前面的代码全住在通用引擎 `http/auth.ts` 里，但引擎从头到尾没出现过「token 存在哪」
+「刷新接口是哪个」——这些是项目决定。装配链三级，逐级注入：
+
+```text
+AuthSession（会话怎么存 —— session.ts）
+   ↓ 注入
+createBearerAuthAdapter（本项目的认证方案 —— http/adapters/auth.ts）
+   ↓ 作为 auth 选项
+createHttpClient({ auth })（引擎在内部 installAuth —— http/client.ts）
+```
+
+第一级，会话对象。四个约定，UI 和请求层共用这一份状态：
+
+```ts
+// src/api/session.ts
+export interface AuthSession {
+  getAccessToken(): string | null;
+  setAccessToken(token: string): void;
+  clearSession(): void; // 会话作废时清状态
+  onExpired(): void; // 清完之后的动作（跳登录页）。expireOnce 保证它每代只响一次
+}
+
+const session = createMemoryAuthSession({
+  onExpired: () => router.push("/login"),
+});
+```
+
+第二级，适配器把这份会话翻译成引擎要的四个动作——带凭证、刷新凭证、判定终结、
+作废会话（完整契约表在「换方案」一节）：
+
+```ts
+// 装配处。test/http-client.test.ts 开头的 createTestAuth 就是这个形状的现成模板
+const auth = createBearerAuthAdapter({
+  baseURL: "/api",
+  getAccessToken: session.getAccessToken,
+  setAccessToken: session.setAccessToken,
+  expireSession() {
+    session.clearSession();
+    session.onExpired();
+  },
+  // 从刷新响应里挑出新令牌。格式不对就抛——那属于「这次刷新失败」。
+  // 源码版走 readApiEnvelope 严格校验，见 createTestAuth。
+  selectAccessToken(response) {
+    const body = response.data as { data?: { accessToken?: string } };
+    const accessToken = body?.data?.accessToken;
+    if (!accessToken) throw new Error("刷新响应里没有 accessToken");
+    return accessToken;
+  },
+});
+```
+
+第三级，交给客户端工厂。引擎自动挂上请求/响应两个拦截器，业务代码对刷新零感知：
+
+```ts
+const http = createHttpClient({ baseURL: "/api", auth });
+
+// 登录、注册这类「本来就没有令牌」的接口跳过认证，它们的 401 不触发刷新：
+await http.post("/auth/login", payload, { skipAuth: true });
+```
+
+分工从此清晰：**引擎管时机**（什么时候刷、结果要不要采纳），**适配器管方案**（凭证
+怎么带、找谁刷）。「换一种认证方案要改多少」的答案已经写进这个结构里——换适配器，
+引擎一行不动；这条线在「换方案」一节展开。
+
+## 会话代际：登录、登出撞上在途刷新
+
+装配完成，应用开始处理登录——复盘表里剩下的最后一个状态在这里暴露。登录成功后的
+写入是两步：
+
+```ts
+session.setAccessToken(result.accessToken);
 http.resetAuthState(); // 顺序不能反
 ```
 
@@ -128,30 +328,28 @@ http.resetAuthState(); // 顺序不能反
   不该发生的登出打断。
 
 所以这个口子要两侧配对才算收上。服务端一侧，**登出必须按家族吊销**（这同时是轮换
-方案自身的安全底线）；前端一侧，边界动作发出前**排空在途刷新**：
+方案自身的安全底线）。前端一侧，直觉的修法是边界动作发出前**排空在途刷新**——引擎
+提供了 `waitForRefreshSettled()`，等在途刷新落定（成败都算）再放行边界动作。
+
+但排空只清得掉**已经在途**的刷新。它返回之后、登录响应回来之前还隔着一整个网络
+往返，这期间任何旧请求撞上 401 都会起一个**新的**刷新——它的 Set-Cookie 照样晚到、
+照样回盖。挡存量挡不住增量，唯一的办法是把整段边界动作关进一个闸里：
 
 ```ts
-await http.waitForRefreshSettled(); // 等在途刷新落定（成败都算），再发登录/登出
-await loginApi(payload); // 现在登录响应才是最后写 Cookie 的认证响应
+// ①上闸：新 401 只排队不再起刷新 → ②排空在途 → ③执行边界动作 → ④放闸
+await http.runAuthTransition(async () => {
+  const result = await loginApi(payload); // 此刻没有任何认证响应在途或能启程
+  session.setAccessToken(result.accessToken);
+  http.resetAuthState(); // 凭证写入也在闸内：响应到达与写入落地之间没有缝
+  return result;
+});
 ```
 
-它不复抛刷新的错误——边界只关心「没有旧响应还在路上」，让登录、登出的响应成为
-最后写 Cookie 的那一个。
-
-## 独立实例还不够：链路隔离
-
-刷新用的是独立的裸 Axios 实例，但两条链路**并没有因此自动隔离**：
-
-```text
-业务请求 → 请求拦截器 await refreshPromise
-                    ↓ 刷新失败
-        业务实例的响应错误拦截器收到刷新的 AxiosError
-                    ↓ config.url = "/auth/refresh", status = 401
-        误判成业务 401 → 重放刷新请求 → 其响应成为业务请求的结果
-```
-
-所以请求拦截器要盖章 `__authManaged = true`，响应拦截器把没盖章的错误原样放行。
-判断「这个错误是不是我该处理的」时，**状态码和 URL 都不够，必须确认它来自本实例**。
+复盘表最后那行 `activeTransitions` 就是这道闸的计数器。闸内排队的 401 在放闸后先
+复查凭证代际：登录已经换代就直接拿新令牌重放，不再刷新；代际没动（比如登录失败）
+才继续走正常刷新。两个细节：边界请求本身必须是 `skipAuth` 的（装配一节本来就这么
+发），否则它撞上 401 会排进闸里等自己；排空原语 `waitForRefreshSettled()` 仍然公开，
+但它只是闸的第②步，单独使用挡得住存量、挡不住增量。
 
 ## 令牌存哪
 
@@ -180,7 +378,9 @@ Access Token 不写 `localStorage`/`sessionStorage`：那样任何 XSS 都能直
   真实原因）；
 - `Path` 锁到认证路由：业务接口拿不到这枚 Cookie，暴露面只剩认证端点本身；
 - **Origin 校验**：`SameSite` 是浏览器行为，旧浏览器与非浏览器客户端不受约束，
-  服务端仍要对登录/刷新/登出校验 `Origin` 白名单，不通过的连 Cookie 一起清掉。
+  服务端仍要对登录/刷新/登出校验 `Origin` 白名单。校验失败**只拒绝、不动 Cookie**：
+  `Origin` 是攻击者可控的请求头，若按它下发清除性的 `Set-Cookie`，任意跨站页面都
+  能借合法站点之口强制登出受害者——清 Cookie 只属于通过校验的正常登出。
 
 admin-backend-3 的对应实现：Cookie 属性集中在后端 `auth-cookies.ts`（`HttpOnly` +
 `SameSite=Strict` + `Secure` + `Path=/admin/api/auth`），三个认证端点入口统一过
@@ -246,10 +446,10 @@ stores/auth.ts    Pinia 响应式镜像 + 路由联动            本工程未�
 
 ## 多标签页：单飞管不到的并发刷新
 
-前面五组状态全是单个标签页内的内存变量，这引出一个部署前必须想清楚的问题：
+前面六组状态全是单个标签页内的内存变量，这引出一个部署前必须想清楚的问题：
 **这套封装拿到多标签页场景下用，会发生什么？**
 
-先划边界。前面五组状态全是模块级内存变量，作用域是**一个标签页**。用户开两个
+先划边界。前面六组状态全是模块级内存变量，作用域是**一个标签页**。用户开两个
 标签页，就有两套互相看不见的状态机——单飞、熔断、代际，在隔壁标签页眼里都不存在。
 大多数时候这没有问题：两边各自持有内存里的 access token，各刷各的。真正共享的只有
 一样东西——**Refresh Cookie**。麻烦恰恰从这份共享开始。
@@ -558,8 +758,8 @@ header；不再需要 `withCredentials`。
 
 `test/auth-session-isolation.test.ts` 覆盖会话代际；
 `test/http-client.test.ts` 里有并发 401 只刷新一次、在途刷新撞上登录/登出被代际
-作废、会话边界前 `waitForRefreshSettled()` 排空在途刷新、以及终结判定交给适配器
-（OAuth 式 400 + `invalid_grant`）的用例；
+作废、会话边界 `runAuthTransition()` 挡住新刷新并先排空在途、以及终结判定交给
+适配器（OAuth 式 400 + `invalid_grant`）的用例；
 `test/failure-budgets.test.ts` 覆盖两类刷新失败的分野——5xx 只熔断不清会话、冷却
 结束后静默自愈；`test/session-sync.test.ts` 覆盖跨标签页同步与事件屏障——全部在
 Node 里跑，正是 BroadcastChannel 是 Node 内建原语的直接证据。
@@ -568,7 +768,7 @@ Node 里跑，正是 BroadcastChannel 是 Node 内建原语的直接证据。
 
 1. 把本页开头「10 个请求全部收到 401」的场景套在变体 (a) 上，推演三个问题——
    `refreshCredential` 会被调几次？登录页会跳几次？冷却窗口内随后到达的 401 拿到
-   什么？（答案都藏在那五组状态里：一次；一次；复用缓存的失败，不再打续期接口。）
+   什么？（答案都藏在那六组状态里：一次；一次；复用缓存的失败，不再打续期接口。）
 2. 两个标签页同时用 R1 刷新，后端带 60 秒宽限窗口：后到的标签页拿到的是先到者的
    R2 吗？先到者的凭证链会因此中断吗？（答案在「多标签页」一节：不是，是补发的
    兄弟凭证；不会，两条链从此各自独立轮换。）
@@ -577,8 +777,11 @@ Node 里跑，正是 BroadcastChannel 是 Node 内建原语的直接证据。
 
 ## 本页源码
 
-构建时从 `docs/projects/axios-http/` 的真实文件直读，和测试跑的是同一份。每个文件头
-注释是该文件的地图。`auth.ts` 建议先把文件头那五组状态看明白再读实现。
+构建时从 `docs/projects/axios-http/` 的真实文件直读，和测试跑的是同一份。对照上文：
+`http/auth.ts` 是第一到六步的状态机加「会话代际」与边界闸；`http/adapters/auth.ts`
+是装配第二级的适配器（含第四步的独立刷新实例）；`session.ts` 是装配第一级的会话
+对象；`session-sync.ts` 是「多标签页」末尾的旁挂同步模块。每个文件头注释是该文件的
+地图。`auth.ts` 建议先把文件头那六组状态看明白再读实现。
 
 ::: code-group
 

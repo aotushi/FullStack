@@ -1048,6 +1048,153 @@ describe("authentication capability", () => {
     expect(session.getAccessToken()).toBe("old");
   });
 
+  it("blocks new refreshes during runAuthTransition and replays with the boundary credential", async () => {
+    // 光排空不够：排空返回后、边界动作的往返期间，新 401 仍可能起新刷新，
+    // 其 Set-Cookie 晚到会回盖边界动作写的 Cookie。闸内产生的 401 必须等闸，
+    // 且闸后复查版本——边界已换代就跳过刷新直接重放。
+    let refreshHits = 0;
+    const baseURL = await startServer((request, response) => {
+      if (request.url === "/auth/refresh") {
+        refreshHits += 1;
+        sendJson(response, 200, {
+          code: 0,
+          message: "ok",
+          data: { accessToken: "via-refresh" },
+        });
+        return;
+      }
+
+      if (request.headers.authorization === "Bearer boundary-fresh") {
+        sendJson(response, 200, { code: 0, message: "ok", data: { ok: true } });
+        return;
+      }
+
+      sendJson(response, 401, { code: 40100, message: "expired", data: null });
+    });
+    const session = createMemoryAuthSession({
+      initialAccessToken: "old",
+      onExpired: vi.fn(),
+    });
+    const http = createHttpClient({
+      baseURL,
+      auth: createTestAuth(baseURL, session),
+    });
+
+    let releaseAction!: () => void;
+    const actionGate = new Promise<void>((resolve) => {
+      releaseAction = resolve;
+    });
+    const transition = http.runAuthTransition(async () => {
+      await actionGate;
+      // 模拟登录成功的写入：新凭证 + 开新代际
+      session.setAccessToken("boundary-fresh");
+      http.resetAuthState();
+      return "login-result";
+    });
+
+    // 边界进行中撞上 401：不得启动新刷新
+    const inflight = http.get<{ ok: boolean }>("/protected");
+    await delay(20);
+    expect(refreshHits).toBe(0);
+
+    releaseAction();
+    await expect(transition).resolves.toBe("login-result");
+
+    // 闸放开后复查版本：凭证已换代，跳过刷新，用新凭证重放
+    await expect(inflight).resolves.toEqual({ ok: true });
+    expect(refreshHits).toBe(0);
+  });
+
+  it("drains the in-flight refresh before running the transition action", async () => {
+    let resolveRefreshArrived!: (response: ServerResponse) => void;
+    const refreshArrived = new Promise<ServerResponse>((resolve) => {
+      resolveRefreshArrived = resolve;
+    });
+    const baseURL = await startServer((request, response) => {
+      if (request.url === "/auth/refresh") {
+        resolveRefreshArrived(response);
+        return;
+      }
+
+      if (request.headers.authorization === "Bearer old") {
+        sendJson(response, 401, { code: 40100, message: "expired", data: null });
+        return;
+      }
+
+      sendJson(response, 200, { code: 0, message: "ok", data: { ok: true } });
+    });
+    const session = createMemoryAuthSession({
+      initialAccessToken: "old",
+      onExpired: vi.fn(),
+    });
+    const http = createHttpClient({
+      baseURL,
+      auth: createTestAuth(baseURL, session),
+    });
+
+    const inflight = http.get<{ ok: boolean }>("/protected");
+    const refreshResponse = await refreshArrived;
+
+    const order: string[] = [];
+    const transition = http.runAuthTransition(async () => {
+      order.push(`action:${session.getAccessToken()}`);
+    });
+    // 在途刷新未落定：边界动作不得开始执行
+    await delay(20);
+    expect(order).toEqual([]);
+
+    sendJson(refreshResponse, 200, {
+      code: 0,
+      message: "ok",
+      data: { accessToken: "fresh" },
+    });
+    await transition;
+    // 动作看到的是刷新提交后的世界，它的写入必然排在旧刷新之后
+    expect(order).toEqual(["action:fresh"]);
+    await expect(inflight).resolves.toEqual({ ok: true });
+  });
+
+  it("releases the transition gate and rethrows when the action fails", async () => {
+    const baseURL = await startServer((request, response) => {
+      if (request.url === "/auth/refresh") {
+        sendJson(response, 200, {
+          code: 0,
+          message: "ok",
+          data: { accessToken: "fresh" },
+        });
+        return;
+      }
+
+      if (request.headers.authorization === "Bearer fresh") {
+        sendJson(response, 200, { code: 0, message: "ok", data: { ok: true } });
+        return;
+      }
+
+      sendJson(response, 401, { code: 40100, message: "expired", data: null });
+    });
+    const session = createMemoryAuthSession({
+      initialAccessToken: "old",
+      onExpired: vi.fn(),
+    });
+    const http = createHttpClient({
+      baseURL,
+      auth: createTestAuth(baseURL, session),
+    });
+
+    // 登录请求本身失败等场景：错误原样冒泡，不吞
+    await expect(
+      http.runAuthTransition(async () => {
+        throw new Error("login failed");
+      }),
+    ).rejects.toThrow("login failed");
+
+    // 闸已释放：老会话继续，401 照常走刷新恢复
+    await expect(http.get<{ ok: boolean }>("/protected")).resolves.toEqual({
+      ok: true,
+    });
+    expect(session.getAccessToken()).toBe("fresh");
+  });
+
   it("lets the adapter decide which refresh failure ends the session", async () => {
     // OAuth 式后端用 400 + invalid_grant（而非 401）表示 Refresh Token 失效。
     // 「哪种失败意味着凭证已死」是后端契约，换个判定就能接入，不改引擎。
